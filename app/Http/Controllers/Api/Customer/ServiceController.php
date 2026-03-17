@@ -29,4 +29,26 @@ class ServiceController extends Controller
             'data' => $service,
         ]);
     }
+
+    public function store(Request $request)
+    {
+        $request->validate([
+            'category_id' => 'required|exists:categories,id',
+            'name' => 'required|string',
+            'description' => 'nullable|string',
+            'price' => 'required|numeric'
+        ]);
+
+        $service = Service::create([
+            'category_id' => $request->category_id,
+            'name' => $request->name,
+            'description' => $request->description,
+            'price' => $request->price
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'data' => $service
+        ]);
+    }
 }

@@ -66,7 +66,9 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::get('/categories/{id}', [CategoryController::class, 'show']);
 
             Route::get('/services', [ServiceController::class, 'index']);
+            Route::post('/services', [ServiceController::class, 'store']);
             Route::get('/services/{id}', [ServiceController::class, 'show']);
+
 
             Route::get('/tukangs', [TukangController::class, 'index']);
             Route::get('/tukangs/{id}', [TukangController::class, 'show']);
@@ -80,6 +82,8 @@ Route::middleware('auth:sanctum')->group(function () {
 
             Route::get('/orders', [OrderController::class, 'index']);
             Route::get('/orders/{id}', [OrderController::class, 'show']);
+            Route::post('/orders', [OrderController::class, 'store']);
+
 
             Route::get('/chats', [ChatController::class, 'index']);
             Route::post('/chats/start', [ChatController::class, 'startChat']);

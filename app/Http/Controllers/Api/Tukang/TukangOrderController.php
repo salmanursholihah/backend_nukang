@@ -4,7 +4,7 @@ namespace App\Http\Controllers\Api\Tukang;
 
 use App\Http\Controllers\Controller;
 use App\Models\Order;
-use App\Models\OrderProgress;
+use App\Models\OrderProgresses;
 use App\Models\PartnerEarning;
 use App\Models\TukangProfile;
 use Illuminate\Http\Request;
@@ -62,7 +62,7 @@ class TukangOrderController extends Controller
             ->whereIn('status', ['accepted', 'on_progress'])
             ->findOrFail($id);
 
-        $progress = OrderProgress::create([
+        $progress = OrderProgresses::create([
             'order_id' => $order->id,
             'title' => $data['title'],
             'description' => $data['description'] ?? null,

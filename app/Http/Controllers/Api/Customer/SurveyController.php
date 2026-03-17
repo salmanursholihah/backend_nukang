@@ -12,7 +12,7 @@ use Illuminate\Support\Facades\DB;
 
 class SurveyController extends Controller
 {
-  public function index(Request $request)
+    public function index(Request $request)
     {
         $surveys = SurveyRequest::with(['service', 'tukang.tukangProfile'])
             ->where('customer_id', $request->user()->id)
@@ -64,12 +64,18 @@ class SurveyController extends Controller
     public function approve(Request $request, $id)
     {
         $survey = SurveyRequest::where('customer_id', $request->user()->id)
-            ->where('status', 'estimated')
             ->findOrFail($id);
+
+        if ($survey->status !== 'estimated') {
+            return response()->json([
+                'message' => 'Survey belum memiliki estimasi atau belum siap disetujui'
+            ], 400);
+        }
 
         $service = Service::findOrFail($survey->service_id);
 
         $order = DB::transaction(function () use ($survey, $service) {
+
             $survey->update([
                 'status' => 'approved',
             ]);
@@ -77,7 +83,7 @@ class SurveyController extends Controller
             $order = Order::create([
                 'customer_id' => $survey->customer_id,
                 'tukang_id' => $survey->tukang_id,
-                'total_price' => $survey->estimated_price ?? 0,
+                'total_price' => $survey->estimated_price ?? $service->price ?? 0,
                 'service_date' => $survey->survey_date ?? now(),
                 'address' => $survey->address,
                 'status' => 'accepted',
@@ -86,7 +92,7 @@ class SurveyController extends Controller
             OrderDetail::create([
                 'order_id' => $order->id,
                 'service_id' => $survey->service_id,
-                'price' => $survey->estimated_price ?? ($service->price ?? 0),
+                'price' => $survey->estimated_price ?? $service->price ?? 0,
                 'qty' => 1,
             ]);
 
@@ -104,12 +110,18 @@ class SurveyController extends Controller
         $survey = SurveyRequest::where('customer_id', $request->user()->id)
             ->findOrFail($id);
 
+        if (!in_array($survey->status, ['estimated', 'requested', 'accepted'])) {
+            return response()->json([
+                'message' => 'Survey tidak dapat ditolak pada status saat ini'
+            ], 400);
+        }
+
         $survey->update([
             'status' => 'cancelled',
         ]);
 
         return response()->json([
-            'message' => 'Estimasi ditolak',
+            'message' => 'Survey berhasil ditolak / dibatalkan',
             'data' => $survey,
         ]);
     }
@@ -117,15 +129,21 @@ class SurveyController extends Controller
     public function cancel(Request $request, $id)
     {
         $survey = SurveyRequest::where('customer_id', $request->user()->id)
-            ->whereIn('status', ['requested', 'accepted', 'survey_priced', 'estimated'])
             ->findOrFail($id);
+
+        if (!in_array($survey->status, ['requested', 'accepted', 'survey_priced', 'estimated'])) {
+            return response()->json([
+                'message' => 'Survey tidak dapat dibatalkan pada status saat ini'
+            ], 400);
+        }
 
         $survey->update([
             'status' => 'cancelled',
         ]);
 
         return response()->json([
-            'message' => 'Permintaan survei dibatalkan',
+            'message' => 'Permintaan survei berhasil dibatalkan',
             'data' => $survey,
         ]);
-    }}
+    }
+}
