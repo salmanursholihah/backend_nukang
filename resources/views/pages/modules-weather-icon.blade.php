@@ -5,9 +5,9 @@
 @push('style')
     <!-- CSS Libraries -->
     <link rel="stylesheet"
-        href="{{ asset(assets/library/weathericons/css/weather-icons.min.css') }}">
+        href="{{ asset('library/weathericons/css/weather-icons.min.css') }}">
     <link rel="stylesheet"
-        href="{{ asset(assets/library/weathericons/css/weather-icons-wind.min.css') }}">
+        href="{{ asset('library/weathericons/css/weather-icons-wind.min.css') }}">
 @endpush
 
 @section('main')

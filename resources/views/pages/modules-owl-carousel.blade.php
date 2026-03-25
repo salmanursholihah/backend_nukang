@@ -5,9 +5,9 @@
 @push('style')
     <!-- CSS Libraries -->
     <link rel="stylesheet"
-        href="{{ asset(assets/library/owl.carousel/dist/assets/owl.carousel.min.css') }}">
+        href="{{ asset('library/owl.carousel/dist/assets/owl.carousel.min.css') }}">
     <link rel="stylesheet"
-        href="{{ asset(assets/library/owl.carousel/dist/assets/owl.theme.default.min.css') }}">
+        href="{{ asset('library/owl.carousel/dist/assets/owl.theme.default.min.css') }}">
 @endpush
 
 @section('main')
@@ -103,7 +103,7 @@
 
 @push('scripts')
     <!-- JS Libraies -->
-    <script src="{{ asset(assets/library/owl.carousel/dist/owl.carousel.min.js') }}"></script>
+    <script src="{{ asset('library/owl.carousel/dist/owl.carousel.min.js') }}"></script>
 
     <!-- Page Specific JS File -->
     <script src="{{ asset('js/page/modules-slider.js') }}"></script>

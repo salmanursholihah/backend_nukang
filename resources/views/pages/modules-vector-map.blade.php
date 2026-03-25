@@ -5,11 +5,11 @@
 @push('style')
     <!-- CSS Libraries -->
     <link rel="stylesheet"
-        href="{{ asset(assets/library/izitoast/dist/css/iziToast.min.css') }}">
+        href="{{ asset('library/izitoast/dist/css/iziToast.min.css') }}">
     <link rel="stylesheet"
-        href="{{ asset(assets/library/jqvmap/dist/jqvmap.min.css') }}">
+        href="{{ asset('library/jqvmap/dist/jqvmap.min.css') }}">
     <link rel="stylesheet"
-        href="{{ asset(assets/library/flag-icon-css/css/flag-icon.min.css') }}">
+        href="{{ asset('library/flag-icon-css/css/flag-icon.min.css') }}">
 @endpush
 
 @section('main')
@@ -86,10 +86,10 @@
 
 @push('scripts')
     <!-- JS Libraies -->
-    <script src="{{ asset(assets/library/izitoast/dist/js/iziToast.js') }}"></script>
-    <script src="{{ asset(assets/library/jqvmap/dist/jquery.vmap.min.js') }}"></script>
-    <script src="{{ asset(assets/library/jqvmap/dist/maps/jquery.vmap.world.js') }}"></script>
-    <script src="{{ asset(assets/library/jqvmap/dist/maps/jquery.vmap.indonesia.js') }}"></script>
+    <script src="{{ asset('library/izitoast/dist/js/iziToast.js') }}"></script>
+    <script src="{{ asset('library/jqvmap/dist/jquery.vmap.min.js') }}"></script>
+    <script src="{{ asset('library/jqvmap/dist/maps/jquery.vmap.world.js') }}"></script>
+    <script src="{{ asset('library/jqvmap/dist/maps/jquery.vmap.indonesia.js') }}"></script>
 
     <!-- Page Specific JS File -->
     <script src="{{ asset('js/page/modules-vector-map.js') }}"></script>

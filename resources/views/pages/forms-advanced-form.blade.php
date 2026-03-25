@@ -5,17 +5,17 @@
 @push('style')
     <!-- CSS Libraries -->
     <link rel="stylesheet"
-        href="{{ asset(assets/library/bootstrap-daterangepicker/daterangepicker.css') }}">
+        href="{{ asset('library/bootstrap-daterangepicker/daterangepicker.css') }}">
     <link rel="stylesheet"
-        href="{{ asset(assets/library/bootstrap-colorpicker/dist/css/bootstrap-colorpicker.min.css') }}">
+        href="{{ asset('library/bootstrap-colorpicker/dist/css/bootstrap-colorpicker.min.css') }}">
     <link rel="stylesheet"
-        href="{{ asset(assets/library/select2/dist/css/select2.min.css') }}">
+        href="{{ asset('library/select2/dist/css/select2.min.css') }}">
     <link rel="stylesheet"
-        href="{{ asset(assets/library/selectric/public/selectric.css') }}">
+        href="{{ asset('library/selectric/public/selectric.css') }}">
     <link rel="stylesheet"
-        href="{{ asset(assets/library/bootstrap-timepicker/css/bootstrap-timepicker.min.css') }}">
+        href="{{ asset('library/bootstrap-timepicker/css/bootstrap-timepicker.min.css') }}">
     <link rel="stylesheet"
-        href="{{ asset(assets/library/bootstrap-tagsinput/dist/bootstrap-tagsinput.css') }}">
+        href="{{ asset('library/bootstrap-tagsinput/dist/bootstrap-tagsinput.css') }}">
 @endpush
 
 @section('main')
@@ -672,14 +672,14 @@
 
 @push('scripts')
     <!-- JS Libraies -->
-    <script src="{{ asset(assets/library/cleave.js/dist/cleave.min.js') }}"></script>
-    <script src="{{ asset(assets/library/cleave.js/dist/addons/cleave-phone.us.js') }}"></script>
-    <script src="{{ asset(assets/library/bootstrap-daterangepicker/daterangepicker.js') }}"></script>
-    <script src="{{ asset(assets/library/bootstrap-colorpicker/dist/js/bootstrap-colorpicker.min.js') }}"></script>
-    <script src="{{ asset(assets/library/bootstrap-timepicker/js/bootstrap-timepicker.min.js') }}"></script>
-    <script src="{{ asset(assets/library/bootstrap-tagsinput/dist/bootstrap-tagsinput.min.js') }}"></script>
-    <script src="{{ asset(assets/library/select2/dist/js/select2.full.min.js') }}"></script>
-    <script src="{{ asset(assets/library/selectric/public/jquery.selectric.min.js') }}"></script>
+    <script src="{{ asset('library/cleave.js/dist/cleave.min.js') }}"></script>
+    <script src="{{ asset('library/cleave.js/dist/addons/cleave-phone.us.js') }}"></script>
+    <script src="{{ asset('library/bootstrap-daterangepicker/daterangepicker.js') }}"></script>
+    <script src="{{ asset('library/bootstrap-colorpicker/dist/js/bootstrap-colorpicker.min.js') }}"></script>
+    <script src="{{ asset('library/bootstrap-timepicker/js/bootstrap-timepicker.min.js') }}"></script>
+    <script src="{{ asset('library/bootstrap-tagsinput/dist/bootstrap-tagsinput.min.js') }}"></script>
+    <script src="{{ asset('library/select2/dist/js/select2.full.min.js') }}"></script>
+    <script src="{{ asset('library/selectric/public/jquery.selectric.min.js') }}"></script>
 
     <!-- Page Specific JS File -->
     <script src="{{ asset('js/page/forms-advanced-forms.js') }}"></script>

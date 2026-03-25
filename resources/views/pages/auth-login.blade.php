@@ -5,7 +5,7 @@
 @push('style')
     <!-- CSS Libraries -->
     <link rel="stylesheet"
-        href="{{ asset('assets/library/bootstrap-social/bootstrap-social.css') }}">
+        href="{{ asset('library/bootstrap-social/bootstrap-social.css') }}">
 @endpush
 
 @section('main')

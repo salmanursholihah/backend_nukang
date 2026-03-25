@@ -4,7 +4,8 @@
 
 @push('style')
     <!-- CSS Libraries -->
-    <link rel="stylesheet" href="{{ asset(assets/library/dropzone/dist/dropzone.css') }}">
+    <link rel="stylesheet"
+        href="{{ asset('library/dropzone/dist/dropzone.css') }}">
 @endpush
 
 @section('main')
@@ -33,9 +34,13 @@
                                 <h4>Multiple Upload</h4>
                             </div>
                             <div class="card-body">
-                                <form action="#" class="dropzone" id="mydropzone">
+                                <form action="#"
+                                    class="dropzone"
+                                    id="mydropzone">
                                     <div class="fallback">
-                                        <input name="file" type="file" multiple />
+                                        <input name="file"
+                                            type="file"
+                                            multiple />
                                     </div>
                                 </form>
                             </div>
@@ -49,7 +54,7 @@
 
 @push('scripts')
     <!-- JS Libraies -->
-    <script src="{{ asset(assets/library/dropzone/dist/min/dropzone.min.js') }}"></script>
+    <script src="{{ asset('library/dropzone/dist/min/dropzone.min.js') }}"></script>
 
     <!-- Page Specific JS File -->
     <script src="{{ asset('js/page/components-multiple-upload.js') }}"></script>

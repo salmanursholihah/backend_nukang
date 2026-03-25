@@ -5,7 +5,7 @@
 @push('style')
     <!-- CSS Libraries -->
     <link rel="stylesheet"
-        href="{{ asset(assets/library/fullcalendar/dist/fullcalendar.min.css') }}">
+        href="{{ asset('library/fullcalendar/dist/fullcalendar.min.css') }}">
 @endpush
 
 @section('main')
@@ -48,7 +48,7 @@
 
 @push('scripts')
     <!-- JS Libraies -->
-    <script src="{{ asset(assets/library/fullcalendar/dist/fullcalendar.min.js') }}"></script>
+    <script src="{{ asset('library/fullcalendar/dist/fullcalendar.min.js') }}"></script>
 
     <!-- Page Specific JS File -->
     <script src="{{ asset('js/page/modules-calendar.js') }}"></script>

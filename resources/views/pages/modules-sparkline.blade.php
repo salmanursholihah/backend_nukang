@@ -78,7 +78,7 @@
 
 @push('scripts')
     <!-- JS Libraies -->
-    <script src="{{ asset(assets/library/jquery-sparkline/jquery.sparkline.min.js') }}"></script>
+    <script src="{{ asset('library/jquery-sparkline/jquery.sparkline.min.js') }}"></script>
 
     <!-- Page Specific JS File -->
     <script src="{{ asset('js/page/modules-sparkline.js') }}"></script>

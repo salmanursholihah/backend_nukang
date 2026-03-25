@@ -5,9 +5,9 @@
 @push('style')
     <!-- CSS Libraries -->
     <link rel="stylesheet"
-        href="{{ asset(assets/library/summernote/dist/summernote-bs4.css') }}">
+        href="{{ asset('library/summernote/dist/summernote-bs4.css') }}">
     <link rel="stylesheet"
-        href="{{ asset(assets/library/chocolat/dist/css/chocolat.css') }}">
+        href="{{ asset('library/chocolat/dist/css/chocolat.css') }}">
 @endpush
 
 @section('main')
@@ -152,8 +152,8 @@
 
 @push('scripts')
     <!-- JS Libraies -->
-    <script src="{{ asset(assets/library/summernote/dist/summernote-bs4.js') }}"></script>
-    <script src="{{ asset(assets/library/chocolat/dist/js/jquery.chocolat.min.js') }}"></script>
+    <script src="{{ asset('library/summernote/dist/summernote-bs4.js') }}"></script>
+    <script src="{{ asset('library/chocolat/dist/js/jquery.chocolat.min.js') }}"></script>
 
     <!-- Page Specific JS File -->
 @endpush

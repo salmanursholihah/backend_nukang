@@ -636,7 +636,7 @@
 
 @push('scripts')
     <!-- JS Libraies -->
-    <script src="{{ asset(assets/library/jquery-ui-dist/jquery-ui.min.js') }}"></script>
+    <script src="{{ asset('library/jquery-ui-dist/jquery-ui.min.js') }}"></script>
 
     <!-- Page Specific JS File -->
     <script src="{{ asset('js/page/components-table.js') }}"></script>

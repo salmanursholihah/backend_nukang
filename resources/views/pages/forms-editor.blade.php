@@ -5,13 +5,13 @@
 @push('style')
     <!-- CSS Libraries -->
     <link rel="stylesheet"
-        href="{{ asset(assets/library/summernote/dist/summernote-bs4.css') }}">
+        href="{{ asset('library/summernote/dist/summernote-bs4.css') }}">
     <link rel="stylesheet"
-        href="{{ asset(assets/library/codemirror/lib/codemirror.css') }}">
+        href="{{ asset('library/codemirror/lib/codemirror.css') }}">
     <link rel="stylesheet"
-        href="{{ asset(assets/library/codemirror/theme/duotone-dark.css') }}">
+        href="{{ asset('library/codemirror/theme/duotone-dark.css') }}">
     <link rel="stylesheet"
-        href="{{ asset(assets/library/selectric/public/selectric.css') }}">
+        href="{{ asset('library/selectric/public/selectric.css') }}">
 @endpush
 
 @section('main')
@@ -156,10 +156,10 @@ setTimeout(function() {
 
 @push('scripts')
     <!-- JS Libraies -->
-    <script src="{{ asset(assets/library/summernote/dist/summernote-bs4.js') }}"></script>
-    <script src="{{ asset(assets/library/codemirror/lib/codemirror.js') }}"></script>
-    <script src="{{ asset(assets/library/codemirror/mode/javascript/javascript.js') }}"></script>
-    <script src="{{ asset(assets/library/selectric/public/jquery.selectric.min.js') }}"></script>
+    <script src="{{ asset('library/summernote/dist/summernote-bs4.js') }}"></script>
+    <script src="{{ asset('library/codemirror/lib/codemirror.js') }}"></script>
+    <script src="{{ asset('library/codemirror/mode/javascript/javascript.js') }}"></script>
+    <script src="{{ asset('library/selectric/public/jquery.selectric.min.js') }}"></script>
 
     <!-- Page Specific JS File -->
 @endpush

@@ -5,7 +5,7 @@
 @push('style')
     <!-- CSS Libraries -->
     <link rel="stylesheet"
-        href="{{ asset(assets/library/ionicons201/css/ionicons.min.css') }}">
+        href="{{ asset('library/ionicons201/css/ionicons.min.css') }}">
 @endpush
 
 @section('main')

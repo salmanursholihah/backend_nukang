@@ -76,7 +76,7 @@
 
 @push('scripts')
     <!-- JS Libraies -->
-    <script src="{{ asset(assets/library/chart.js/dist/Chart.min.js') }}"></script>
+    <script src="{{ asset('library/chart.js/dist/Chart.min.js') }}"></script>
 
     <!-- Page Specific JS File -->
     <script src="{{ asset('js/page/modules-chartjs.js') }}"></script>

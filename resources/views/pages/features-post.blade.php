@@ -5,7 +5,7 @@
 @push('style')
     <!-- CSS Libraries -->
     <link rel="stylesheet"
-        href="{{ asset(assets/library/selectric/public/selectric.css') }}">
+        href="{{ asset('library/selectric/public/selectric.css') }}">
 @endpush
 
 @section('main')
@@ -357,7 +357,7 @@
 
 @push('scripts')
     <!-- JS Libraies -->
-    <script src="{{ asset(assets/library/selectric/public/jquery.selectric.min.js') }}"></script>
+    <script src="{{ asset('library/selectric/public/jquery.selectric.min.js') }}"></script>
 
     <!-- Page Specific JS File -->
     <script src="{{ asset('js/page/features-posts.js') }}"></script>
