@@ -1,5 +1,15 @@
 <?php
 
+use App\Http\Controllers\Web\Superadmin\CategoryController;
+use App\Http\Controllers\Web\Superadmin\DashboardController;
+use App\Http\Controllers\Web\Superadmin\EarningsController;
+use App\Http\Controllers\Web\Superadmin\OrderController;
+use App\Http\Controllers\Web\Superadmin\ReviewController;
+use App\Http\Controllers\Web\Superadmin\ServiceController;
+use App\Http\Controllers\Web\Superadmin\SurveyController;
+use App\Http\Controllers\Web\Superadmin\TukangController;
+use App\Http\Controllers\Web\Superadmin\UserController;
+use App\Models\PartnerEarning;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -258,4 +268,36 @@ Route::get('/utilities-subscribe', function () {
 // credits
 Route::get('/credits', function () {
     return view('pages.credits', ['type_menu' => '']);
+});
+
+
+
+// Route::middleware(['auth'])->prefix('admin')->group(function () {
+Route::middleware(['auth','admin'])->prefix('admin')->group(function () {
+    Route::get('/dashboard', [DashboardController::class, 'index'])->name('admin.dashboard');
+
+    Route::get('/users', [UserController::class, 'index']);
+    Route::delete('/users/{id}', [UserController::class, 'destroy']);
+
+    Route::get('/tukang', [TukangController::class, 'index']);
+    Route::post('/tukang/{id}/verify', [TukangController::class, 'verify']);
+
+    Route::get('/categories', [CategoryController::class, 'index']);
+    Route::post('/categories', [CategoryController::class, 'store']);
+    Route::put('/categories/{id}', [CategoryController::class, 'update']);
+    Route::delete('/categories/{id}', [CategoryController::class, 'destroy']);
+
+    Route::get('/services', [ServiceController::class, 'index']);
+    Route::post('/services', [ServiceController::class, 'store']);
+    Route::put('/services/{id}', [ServiceController::class, 'update']);
+    Route::delete('/services/{id}', [ServiceController::class, 'destroy']);
+
+    Route::get('/orders', [OrderController::class, 'index']);
+
+    Route::get('/surveys', [SurveyController::class, 'index']);
+
+    Route::get('/reviews', [ReviewController::class, 'index']);
+
+    Route::get('/earnings', [EarningsController::class, 'index']);
+    Route::post('/earnings/{id}/pay', [EarningsController::class, 'pay']);
 });
