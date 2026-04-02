@@ -9,12 +9,12 @@ use Illuminate\Http\Request;
 
 class ServiceController extends Controller
 {
-public function index()
+    public function index()
     {
-        $services = Service::with('category')->latest()->get();
+        $services = Service::with('category')->latest()->paginate(10);
         $categories = Category::all();
 
-        return view('admin.services.index', compact('services', 'categories'));
+        return view('pages.admin.services.index', compact('services', 'categories'));
     }
 
     public function store(Request $request)

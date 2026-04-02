@@ -15,8 +15,8 @@ public function index()
             'tukang',
             'details.service',
             'progresses'
-        ])->latest()->get();
+        ])->latest()->paginate();
 
-        return view('admin.orders.index', compact('orders'));
+        return view('pages.admin.orders.index', compact('orders'));
     }
 }

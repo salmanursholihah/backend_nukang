@@ -8,11 +8,11 @@ use Illuminate\Http\Request;
 
 class UserController extends Controller
 {
-  public function index()
+    public function index()
     {
-        $users = User::latest()->get();
+        $users = User::latest()->paginate(10);
 
-        return view('admin.users.index', compact('users'));
+        return view('pages.admin.users.index', compact('users'));
     }
 
     public function destroy($id)

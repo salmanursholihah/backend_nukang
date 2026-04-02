@@ -13,9 +13,9 @@ public function index()
         $earnings = PartnerEarning::with([
             'order',
             'tukang'
-        ])->latest()->get();
+        ])->latest()->paginate();
 
-        return view('admin.earnings.index', compact('earnings'));
+        return view('pages.admin.earnings.index', compact('earnings'));
     }
 
     public function pay($id)

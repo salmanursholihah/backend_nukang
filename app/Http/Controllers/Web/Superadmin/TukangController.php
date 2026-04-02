@@ -10,9 +10,9 @@ class TukangController extends Controller
 {
 public function index()
     {
-        $tukangs = TukangProfile::with('user')->latest()->get();
+        $tukangs = TukangProfile::with('user')->latest()->paginate(10);
 
-        return view('admin.tukang.index', compact('tukangs'));
+        return view('pages.admin.tukang.index', compact('tukangs'));
     }
 
     public function verify($id)

@@ -14,8 +14,9 @@ class SurveyController extends Controller
             'customer',
             'tukang',
             'service'
-        ])->latest()->get();
+        ])->latest()->paginate();
 
-        return view('admin.surveys.index', compact('surveys'));
+        return view('pages.admin.surveys.index', compact('surveys'));
     }
 }
+

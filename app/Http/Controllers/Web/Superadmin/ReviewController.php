@@ -14,8 +14,8 @@ class ReviewController extends Controller
             'customer',
             'tukang',
             'order'
-        ])->latest()->get();
+        ])->latest()->paginate();
 
-        return view('admin.reviews.index', compact('reviews'));
+        return view('pages.admin.reviews.index', compact('reviews'));
     }
 }
