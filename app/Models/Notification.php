@@ -5,23 +5,29 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
-class TukangProfile extends Model
+class Notification extends Model
 {
     use HasFactory;
 
     protected $guarded = [];
 
     protected $casts = [
-        'latitude'     => 'decimal:7',
-        'longitude'    => 'decimal:7',
-        'rating'       => 'decimal:2',
-        'radius_km'    => 'decimal:2',
-        'is_verified'  => 'boolean',
-        'is_available' => 'boolean',
+        'is_read' => 'boolean',
+        'read_at' => 'datetime',
     ];
 
     public function user()
     {
         return $this->belongsTo(User::class);
+    }
+
+    public function notifiable()
+    {
+        return $this->morphTo();
+    }
+
+    public function markAsRead(): void
+    {
+        $this->update(['is_read' => true, 'read_at' => now()]);
     }
 }

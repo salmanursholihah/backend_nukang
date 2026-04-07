@@ -11,11 +11,15 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::create('chats', function (Blueprint $table) {
+        Schema::create('tukang_services', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('customer_id')->constrained('users')->cascadeOnDelete();
             $table->foreignId('tukang_id')->constrained('users')->cascadeOnDelete();
+            $table->foreignId('service_id')->constrained()->cascadeOnDelete();
+            $table->decimal('custom_price', 12, 2)->nullable(); // harga custom per tukang
+            $table->text('notes')->nullable();
             $table->timestamps();
+
+            $table->unique(['tukang_id', 'service_id']);
         });
     }
 
@@ -24,6 +28,6 @@ return new class extends Migration
      */
     public function down(): void
     {
-        //
+        Schema::dropIfExists('tukang_services');
     }
 };

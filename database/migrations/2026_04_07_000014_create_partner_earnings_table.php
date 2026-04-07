@@ -11,12 +11,15 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::create('order_progresses', function (Blueprint $table) {
+        Schema::create('partner_earnings', function (Blueprint $table) {
             $table->id();
+            $table->foreignId('tukang_id')->constrained('users')->cascadeOnDelete();
             $table->foreignId('order_id')->constrained()->cascadeOnDelete();
-            $table->text('title');
-            $table->text('description')->nullable();
-            $table->string('photo')->nullable();
+            $table->decimal('order_amount', 12, 2);
+            $table->decimal('platform_fee', 12, 2);      // potongan komisi
+            $table->decimal('amount', 12, 2);             // yang diterima tukang
+            $table->enum('status', ['pending', 'settled', 'paid'])->default('pending');
+            $table->timestamp('settled_at')->nullable();
             $table->timestamps();
         });
     }

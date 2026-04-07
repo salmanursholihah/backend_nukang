@@ -11,21 +11,17 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::create('orders', function (Blueprint $table) {
+        Schema::create('tukang_locations', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('customer_id')->constrained('users')->cascadeOnDelete();
             $table->foreignId('tukang_id')->constrained('users')->cascadeOnDelete();
-            $table->decimal('total_price', 12, 2);
-            $table->dateTime('service_date');
-            $table->text('address');
-            $table->enum('status', [
-                'pending',
-                'accepted',
-                'on_progress',
-                'completed',
-                'cancelled'
-            ])->default('pending');
+            $table->decimal('latitude', 10, 7);
+            $table->decimal('longitude', 10, 7);
+            $table->boolean('is_online')->default(false);
+            $table->timestamp('last_seen_at')->nullable();
             $table->timestamps();
+
+            $table->index(['latitude', 'longitude']); // index untuk query radius
+            $table->index('is_online');
         });
     }
 
@@ -34,6 +30,6 @@ return new class extends Migration
      */
     public function down(): void
     {
-        //
+        Schema::dropIfExists('tukang_locations');
     }
 };

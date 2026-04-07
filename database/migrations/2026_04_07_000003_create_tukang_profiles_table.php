@@ -15,10 +15,19 @@ return new class extends Migration
             $table->id();
             $table->foreignId('user_id')->constrained()->cascadeOnDelete();
             $table->text('address')->nullable();
+            $table->string('city')->nullable();
+            $table->string('province')->nullable();
+            $table->decimal('latitude', 10, 7)->nullable();   // lokasi domisili
+            $table->decimal('longitude', 10, 7)->nullable();
             $table->string('photo')->nullable();
+            $table->text('bio')->nullable();
+            $table->string('id_card_photo')->nullable();      // foto KTP
             $table->decimal('rating', 3, 2)->default(0);
             $table->integer('total_jobs')->default(0);
+            $table->integer('total_reviews')->default(0);
             $table->boolean('is_verified')->default(false);
+            $table->boolean('is_available')->default(true);   // toggle online/offline
+            $table->decimal('radius_km', 5, 2)->default(10); // jangkauan layanan
             $table->timestamps();
         });
     }

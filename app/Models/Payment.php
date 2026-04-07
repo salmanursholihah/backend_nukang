@@ -5,15 +5,17 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
-class OrderDetail extends Model
+class Payment extends Model
 {
     use HasFactory;
 
     protected $guarded = [];
 
+
     protected $casts = [
-        'price'    => 'decimal:2',
-        'subtotal' => 'decimal:2',
+        'amount'           => 'decimal:2',
+        'payment_response' => 'array',
+        'paid_at'          => 'datetime',
     ];
 
     public function order()
@@ -21,8 +23,8 @@ class OrderDetail extends Model
         return $this->belongsTo(Order::class);
     }
 
-    public function service()
+    public function customer()
     {
-        return $this->belongsTo(Service::class);
+        return $this->belongsTo(User::class, 'customer_id');
     }
 }

@@ -11,6 +11,8 @@ class Chat extends Model
 
     protected $guarded = [];
 
+    protected $casts = ['last_message_at' => 'datetime'];
+
     public function customer()
     {
         return $this->belongsTo(User::class, 'customer_id');
@@ -19,6 +21,11 @@ class Chat extends Model
     public function tukang()
     {
         return $this->belongsTo(User::class, 'tukang_id');
+    }
+
+    public function order()
+    {
+        return $this->belongsTo(Order::class);
     }
 
     public function messages()

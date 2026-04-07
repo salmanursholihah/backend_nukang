@@ -15,8 +15,13 @@ return new class extends Migration
             $table->id();
             $table->foreignId('category_id')->constrained()->cascadeOnDelete();
             $table->string('name');
+            $table->string('slug')->unique();
             $table->text('description')->nullable();
-            $table->decimal('price', 12, 2)->nullable();
+            $table->decimal('base_price', 12, 2)->nullable();
+            $table->decimal('price_per_unit', 12, 2)->nullable();
+            $table->string('unit')->nullable();           // "meter", "jam", "titik"
+            $table->string('thumbnail')->nullable();
+            $table->boolean('is_active')->default(true);
             $table->timestamps();
         });
     }

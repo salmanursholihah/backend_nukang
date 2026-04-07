@@ -17,19 +17,22 @@ return new class extends Migration
             $table->foreignId('tukang_id')->constrained('users')->cascadeOnDelete();
             $table->foreignId('service_id')->constrained()->cascadeOnDelete();
             $table->text('address');
+            $table->decimal('latitude', 10, 7)->nullable();
+            $table->decimal('longitude', 10, 7)->nullable();
             $table->dateTime('survey_date')->nullable();
             $table->decimal('survey_fee', 12, 2)->nullable();
             $table->decimal('estimated_price', 12, 2)->nullable();
             $table->integer('estimated_days')->nullable();
             $table->text('notes')->nullable();
+            $table->text('tukang_notes')->nullable();
             $table->enum('status', [
-                'requested',
-                'accepted',
-                'rejected',
-                'survey_priced',
-                'estimated',
-                'approved',
-                'cancelled'
+                'requested',    // customer minta survey
+                'accepted',     // tukang setuju
+                'rejected',     // tukang tolak
+                'on_survey',    // sedang survey
+                'survey_priced', // tukang isi estimasi
+                'approved',     // customer setuju → jadi order
+                'cancelled',
             ])->default('requested');
             $table->timestamps();
         });

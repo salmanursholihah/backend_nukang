@@ -5,20 +5,17 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
-class OrderDetail extends Model
+class SurveyRequestService extends Model
 {
     use HasFactory;
 
     protected $guarded = [];
 
-    protected $casts = [
-        'price'    => 'decimal:2',
-        'subtotal' => 'decimal:2',
-    ];
+    protected $casts = ['estimated_price' => 'decimal:2'];
 
-    public function order()
+    public function surveyRequest()
     {
-        return $this->belongsTo(Order::class);
+        return $this->belongsTo(SurveyRequest::class);
     }
 
     public function service()

@@ -11,12 +11,14 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::create('partner_earnings', function (Blueprint $table) {
+        Schema::create('order_details', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('tukang_id')->constrained('users')->cascadeOnDelete();
             $table->foreignId('order_id')->constrained()->cascadeOnDelete();
-            $table->decimal('amount', 12, 2);
-            $table->enum('status', ['pending', 'paid'])->default('pending');
+            $table->foreignId('service_id')->constrained()->cascadeOnDelete();
+            $table->string('service_name');               // snapshot nama saat order
+            $table->decimal('price', 12, 2);
+            $table->integer('qty')->default(1);
+            $table->decimal('subtotal', 12, 2);
             $table->timestamps();
         });
     }

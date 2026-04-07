@@ -11,12 +11,14 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::create('order_details', function (Blueprint $table) {
+        Schema::create('survey_request_services', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('order_id')->constrained()->cascadeOnDelete();
+            $table->foreignId('survey_request_id')->constrained()->cascadeOnDelete();
             $table->foreignId('service_id')->constrained()->cascadeOnDelete();
-            $table->decimal('price', 12, 2);
+            $table->string('service_name');               // snapshot nama saat survey
+            $table->decimal('estimated_price', 12, 2)->nullable();
             $table->integer('qty')->default(1);
+            $table->text('notes')->nullable();
             $table->timestamps();
         });
     }
@@ -26,6 +28,6 @@ return new class extends Migration
      */
     public function down(): void
     {
-        //
+        Schema::dropIfExists('survey_request_services');
     }
 };

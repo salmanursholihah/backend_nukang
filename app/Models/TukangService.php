@@ -5,20 +5,16 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
-class OrderDetail extends Model
+class TukangService extends Model
 {
     use HasFactory;
-
     protected $guarded = [];
 
-    protected $casts = [
-        'price'    => 'decimal:2',
-        'subtotal' => 'decimal:2',
-    ];
+    protected $casts = ['custom_price' => 'decimal:2'];
 
-    public function order()
+    public function tukang()
     {
-        return $this->belongsTo(Order::class);
+        return $this->belongsTo(User::class, 'tukang_id');
     }
 
     public function service()

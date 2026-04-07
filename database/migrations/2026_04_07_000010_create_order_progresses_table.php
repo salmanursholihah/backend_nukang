@@ -11,12 +11,14 @@ return new class extends Migration
      */
     public function up(): void
     {
-  Schema::create('categories', function (Blueprint $table) {
-    $table->id();
-    $table->string('name');
-    $table->string('icon')->nullable();
-    $table->timestamps();
-});
+        Schema::create('order_progresses', function (Blueprint $table) {
+            $table->id();
+            $table->foreignId('order_id')->constrained()->cascadeOnDelete();
+            $table->string('title');
+            $table->text('description')->nullable();
+            $table->string('photo')->nullable();
+            $table->timestamps();
+        });
     }
 
     /**
