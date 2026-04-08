@@ -2,9 +2,13 @@
 
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\Customer\OrderController;
+use App\Http\Controllers\Api\Customer\PaymentController;
+use App\Http\Controllers\Api\Customer\ReviewController;
+use App\Http\Controllers\Api\Customer\SurveyRequestController;
 use App\Http\Controllers\Api\Public\CategoryController;
 use App\Http\Controllers\Api\Public\ServiceController;
 use App\Http\Controllers\Api\Public\TukangController;
+use App\Http\Controllers\Api\Tukang\JobOrderController;
 use Illuminate\Support\Facades\Route;
 
 // =============================================================
@@ -62,9 +66,9 @@ Route::middleware('auth:sanctum')->group(function () {
         //         // ── Payments ─────────────────────────────────────────
         //         // POST   /customer/payments          → bayar order
         //         // GET    /customer/payments/{payment}→ cek status pembayaran
-        //         Route::post('/payments',                     [PaymentController::class, 'store']);
-        //         Route::get('/payments/{payment}',            [PaymentController::class, 'show']);
-        //         Route::post('/payments/{payment}/callback',  [PaymentController::class, 'callback']);
+                Route::post('/payments',                     [PaymentController::class, 'store']);
+                Route::get('/payments/{payment}',            [PaymentController::class, 'show']);
+                Route::post('/payments/{payment}/callback',  [PaymentController::class, 'callback']);
 
         //         // ── Survey Requests ───────────────────────────────────
         //         // GET    /customer/survey-requests           → daftar survey
@@ -72,25 +76,25 @@ Route::middleware('auth:sanctum')->group(function () {
         //         // GET    /customer/survey-requests/{survey}  → detail survey
         //         // PUT    /customer/survey-requests/{survey}/approve → setuju estimasi → jadi order
         //         // DELETE /customer/survey-requests/{survey}  → batalkan survey
-        //         Route::get('/survey-requests',                          [SurveyRequestController::class, 'index']);
-        //         Route::post('/survey-requests',                         [SurveyRequestController::class, 'store']);
-        //         Route::get('/survey-requests/{survey}',                 [SurveyRequestController::class, 'show']);
-        //         Route::put('/survey-requests/{survey}/approve',         [SurveyRequestController::class, 'approve']);
-        //         Route::delete('/survey-requests/{survey}',              [SurveyRequestController::class, 'cancel']);
+                Route::get('/survey-requests',                          [SurveyRequestController::class, 'index']);
+                Route::post('/survey-requests',                         [SurveyRequestController::class, 'store']);
+                Route::get('/survey-requests/{survey}',                 [SurveyRequestController::class, 'show']);
+                Route::put('/survey-requests/{survey}/approve',         [SurveyRequestController::class, 'approve']);
+                Route::delete('/survey-requests/{survey}',              [SurveyRequestController::class, 'cancel']);
 
         //         // ── Reviews ───────────────────────────────────────────
         //         // POST   /customer/reviews           → beri review setelah order selesai
         //         // GET    /customer/reviews           → daftar review yang pernah dibuat
-        //         Route::get('/reviews',               [ReviewController::class, 'index']);
-        //         Route::post('/reviews',              [ReviewController::class, 'store']);
-        //     });
+                Route::get('/reviews',               [ReviewController::class, 'index']);
+                Route::post('/reviews',              [ReviewController::class, 'store']);
+            });
 
 
         //     // =========================================================
         //     // TUKANG ROUTES
         //     // =========================================================
 
-        //     Route::middleware('role:tukang')->prefix('tukang')->name('tukang.')->group(function () {
+            Route::middleware('role:tukang')->prefix('tukang')->name('tukang.')->group(function () {
 
         //         // ── Profile Tukang ────────────────────────────────────
         //         // GET  /tukang/profile       → lihat profil sendiri
@@ -123,14 +127,14 @@ Route::middleware('auth:sanctum')->group(function () {
         //         // PUT  /tukang/orders/{order}/start          → mulai pengerjaan
         //         // PUT  /tukang/orders/{order}/complete       → selesaikan order
         //         // POST /tukang/orders/{order}/progress       → tambah progress foto
-        //         Route::get('/orders',                          [JobOrderController::class, 'index']);
-        //         Route::get('/orders/{order}',                  [JobOrderController::class, 'show']);
-        //         Route::put('/orders/{order}/accept',           [JobOrderController::class, 'accept']);
-        //         Route::put('/orders/{order}/reject',           [JobOrderController::class, 'reject']);
-        //         Route::put('/orders/{order}/start',            [JobOrderController::class, 'start']);
-        //         Route::put('/orders/{order}/complete',         [JobOrderController::class, 'complete']);
-        //         Route::post('/orders/{order}/progress',        [JobOrderController::class, 'addProgress']);
-        //         Route::delete('/orders/{order}/progress/{progress}', [JobOrderController::class, 'deleteProgress']);
+                Route::get('/orders',                          [JobOrderController::class, 'index']);
+                Route::get('/orders/{order}',                  [JobOrderController::class, 'show']);
+                Route::put('/orders/{order}/accept',           [JobOrderController::class, 'accept']);
+                Route::put('/orders/{order}/reject',           [JobOrderController::class, 'reject']);
+                Route::put('/orders/{order}/start',            [JobOrderController::class, 'start']);
+                Route::put('/orders/{order}/complete',         [JobOrderController::class, 'complete']);
+                Route::post('/orders/{order}/progress',        [JobOrderController::class, 'addProgress']);
+                Route::delete('/orders/{order}/progress/{progress}', [JobOrderController::class, 'deleteProgress']);
 
         //         // ── Survey (survey yang ditugaskan ke tukang) ─────────
         //         // GET  /tukang/surveys                       → daftar survey masuk
@@ -157,7 +161,7 @@ Route::middleware('auth:sanctum')->group(function () {
         //         Route::get('/withdrawals',          [WithdrawalController::class, 'index']);
         //         Route::post('/withdrawals',         [WithdrawalController::class, 'store']);
         //         Route::get('/withdrawals/{withdrawal}', [WithdrawalController::class, 'show']);
-        //     });
+            });
 
 
         //     // =========================================================
@@ -257,4 +261,4 @@ Route::middleware('auth:sanctum')->group(function () {
         //         Route::delete('/reviews/{review}',        [AdminReviewController::class, 'destroy']);
         //         Route::put('/reviews/{review}/unpublish', [AdminReviewController::class, 'unpublish']);
     });
-});
+// });
