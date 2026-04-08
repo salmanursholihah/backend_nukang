@@ -38,19 +38,19 @@ class CategoryController extends Controller
     {
         $request->validate([
             'name'      => 'required|string|max:100|unique:categories,name',
-            'icon'      => 'nullable|image|mimes:jpg,jpeg,png,webp,svg|max:1024',
+            'image'     => 'nullable|image|mimes:jpg,jpeg,png,webp,svg|max:1024',
             'is_active' => 'sometimes|boolean',
         ]);
 
-        $iconPath = null;
-        if ($request->hasFile('icon')) {
-            $iconPath = $this->uploadImage($request->file('icon'), 'categories');
+        $imagePath = null;
+        if ($request->hasFile('image')) {
+            $imagePath = $this->uploadImage($request->file('image'), 'categories');
         }
 
         Category::create([
             'name'      => $request->name,
             'slug'      => Str::slug($request->name),
-            'icon'      => $iconPath,
+            'image'     => $imagePath,
             'is_active' => $request->boolean('is_active', true),
         ]);
 
@@ -74,7 +74,7 @@ class CategoryController extends Controller
     {
         $request->validate([
             'name'      => 'required|string|max:100|unique:categories,name,' . $category->id,
-            'icon'      => 'nullable|image|mimes:jpg,jpeg,png,webp,svg|max:1024',
+            'image'     => 'nullable|image|mimes:jpg,jpeg,png,webp,svg|max:1024',
             'is_active' => 'sometimes|boolean',
         ]);
 
@@ -84,8 +84,8 @@ class CategoryController extends Controller
             'is_active' => $request->boolean('is_active'),
         ];
 
-        if ($request->hasFile('icon')) {
-            $data['icon'] = $this->replaceImage($request->file('icon'), 'categories', $category->icon);
+        if ($request->hasFile('image')) {
+            $data['image'] = $this->replaceImage($request->file('image'), 'categories', $category->image);
         }
 
         $category->update($data);
@@ -101,7 +101,7 @@ class CategoryController extends Controller
             return back()->with('error', 'Kategori tidak bisa dihapus karena masih memiliki service.');
         }
 
-        $this->deleteImage($category->icon);
+        $this->deleteImage($category->image);
         $category->delete();
 
         return redirect()

@@ -9,26 +9,36 @@
             <div class="section-header">
                 <h1>Kategori</h1>
                 <div class="section-header-breadcrumb">
-                    <div class="breadcrumb-item"><a href="{{ route('admin.dashboard') }}">Dashboard</a></div>
+                    <div class="breadcrumb-item">
+                        <a href="{{ route('admin.dashboard') }}">Dashboard</a>
+                    </div>
                     <div class="breadcrumb-item active">Kategori</div>
                 </div>
             </div>
 
+            {{-- Alert --}}
             @if (session('success'))
                 <div class="alert alert-success alert-dismissible fade show">
                     <i class="fas fa-check-circle mr-2"></i> {{ session('success') }}
-                    <button type="button" class="close" data-dismiss="alert"><span>&times;</span></button>
+                    <button type="button" class="close" data-dismiss="alert">
+                        <span>&times;</span>
+                    </button>
                 </div>
             @endif
+
             @if (session('error'))
                 <div class="alert alert-danger alert-dismissible fade show">
                     <i class="fas fa-exclamation-circle mr-2"></i> {{ session('error') }}
-                    <button type="button" class="close" data-dismiss="alert"><span>&times;</span></button>
+                    <button type="button" class="close" data-dismiss="alert">
+                        <span>&times;</span>
+                    </button>
                 </div>
             @endif
 
             <div class="section-body">
                 <div class="card">
+
+                    {{-- Header --}}
                     <div class="card-header">
                         <h4>Daftar Kategori</h4>
                         <div class="card-header-action">
@@ -37,6 +47,7 @@
                             </a>
                         </div>
                     </div>
+
                     <div class="card-body">
 
                         {{-- Filter --}}
@@ -46,20 +57,25 @@
                                     <input type="text" name="search" class="form-control"
                                         placeholder="Cari nama kategori..." value="{{ request('search') }}">
                                 </div>
+
                                 <div class="col-md-3">
                                     <select name="is_active" class="form-control">
                                         <option value="">Semua Status</option>
-                                        <option value="1" {{ request('is_active') === '1' ? 'selected' : '' }}>Aktif
+                                        <option value="1" {{ request('is_active') === '1' ? 'selected' : '' }}>
+                                            Aktif
                                         </option>
-                                        <option value="0" {{ request('is_active') === '0' ? 'selected' : '' }}>Nonaktif
+                                        <option value="0" {{ request('is_active') === '0' ? 'selected' : '' }}>
+                                            Nonaktif
                                         </option>
                                     </select>
                                 </div>
+
                                 <div class="col-md-2">
                                     <button type="submit" class="btn btn-primary btn-block">
                                         <i class="fas fa-search"></i> Filter
                                     </button>
                                 </div>
+
                                 <div class="col-md-2">
                                     <a href="{{ route('admin.categories.index') }}" class="btn btn-secondary btn-block">
                                         <i class="fas fa-times"></i> Reset
@@ -74,7 +90,7 @@
                                 <thead>
                                     <tr>
                                         <th>#</th>
-                                        <th>Icon</th>
+                                        <th>Image</th>
                                         <th>Nama</th>
                                         <th>Slug</th>
                                         <th>Jumlah Service</th>
@@ -86,48 +102,61 @@
                                     @forelse ($categories as $category)
                                         <tr>
                                             <td>{{ $categories->firstItem() + $loop->index }}</td>
+
+                                            {{-- IMAGE FIX --}}
                                             <td>
-                                                @if ($category->icon)
-                                                    <img src="{{ asset($category->icon) }}" width="40" height="40"
-                                                        class="rounded" style="object-fit:cover;">
+                                                @if ($category->image)
+                                                    <img src="{{ asset('storage/' . $category->image) }}" width="40"
+                                                        height="40" class="rounded" style="object-fit:cover;">
                                                 @else
                                                     <div class="bg-light rounded d-flex align-items-center justify-content-center"
                                                         style="width:40px;height:40px;">
-                                                        <i class="fas fa-list text-muted"></i>
+                                                        <i class="fas fa-image text-muted"></i>
                                                     </div>
                                                 @endif
                                             </td>
+
                                             <td>
                                                 <a href="{{ route('admin.categories.show', $category) }}">
                                                     {{ $category->name }}
                                                 </a>
                                             </td>
-                                            <td><code>{{ $category->slug }}</code></td>
+
+                                            <td>
+                                                <code>{{ $category->slug }}</code>
+                                            </td>
+
                                             <td>
                                                 <span class="badge badge-info">
-                                                    {{ $category->services_count }} service
+                                                    {{ $category->services_count ?? 0 }} service
                                                 </span>
                                             </td>
+
                                             <td>
                                                 <span
                                                     class="badge badge-{{ $category->is_active ? 'success' : 'danger' }}">
                                                     {{ $category->is_active ? 'Aktif' : 'Nonaktif' }}
                                                 </span>
                                             </td>
+
                                             <td>
                                                 <a href="{{ route('admin.categories.show', $category) }}"
                                                     class="btn btn-sm btn-info" title="Detail">
                                                     <i class="fas fa-eye"></i>
                                                 </a>
+
                                                 <a href="{{ route('admin.categories.edit', $category) }}"
                                                     class="btn btn-sm btn-warning" title="Edit">
                                                     <i class="fas fa-edit"></i>
                                                 </a>
+
                                                 <form method="POST"
                                                     action="{{ route('admin.categories.destroy', $category) }}"
                                                     class="d-inline">
-                                                    @csrf @method('DELETE')
-                                                    <button type="submit" class="btn btn-sm btn-danger" title="Hapus"
+                                                    @csrf
+                                                    @method('DELETE')
+
+                                                    <button type="submit" class="btn btn-sm btn-danger"
                                                         onclick="return confirm('Hapus kategori {{ $category->name }}?')">
                                                         <i class="fas fa-trash"></i>
                                                     </button>
@@ -149,9 +178,11 @@
                         {{-- Pagination --}}
                         <div class="d-flex justify-content-between align-items-center mt-3">
                             <div class="text-muted">
-                                Menampilkan {{ $categories->firstItem() ?? 0 }}–{{ $categories->lastItem() ?? 0 }}
+                                Menampilkan {{ $categories->firstItem() ?? 0 }}–
+                                {{ $categories->lastItem() ?? 0 }}
                                 dari {{ $categories->total() }} kategori
                             </div>
+
                             {{ $categories->links() }}
                         </div>
 

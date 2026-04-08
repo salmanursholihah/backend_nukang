@@ -62,19 +62,19 @@ class AdminCategoryController extends Controller
     {
         $request->validate([
             'name'      => 'required|string|max:100|unique:categories,name',
-            'icon'      => 'nullable|image|mimes:jpg,jpeg,png,webp,svg|max:1024',
+            'image'     => 'nullable|image|mimes:jpg,jpeg,png,webp,svg|max:1024',
             'is_active' => 'sometimes|boolean',
         ]);
 
-        $iconPath = null;
-        if ($request->hasFile('icon')) {
-            $iconPath = $this->uploadImage($request->file('icon'), 'categories');
+        $imagePath = null;
+        if ($request->hasFile('image')) {
+            $imagePath = $this->uploadImage($request->file('image'), 'categories');
         }
 
         $category = Category::create([
             'name'      => $request->name,
             'slug'      => Str::slug($request->name),
-            'icon'      => $iconPath,
+            'image'     => $imagePath,
             'is_active' => $request->input('is_active', true),
         ]);
 
@@ -90,7 +90,7 @@ class AdminCategoryController extends Controller
     {
         $request->validate([
             'name'      => 'sometimes|string|max:100|unique:categories,name,' . $category->id,
-            'icon'      => 'nullable|image|mimes:jpg,jpeg,png,webp,svg|max:1024',
+            'image'     => 'nullable|image|mimes:jpg,jpeg,png,webp,svg|max:1024',
             'is_active' => 'sometimes|boolean',
         ]);
 
@@ -100,8 +100,8 @@ class AdminCategoryController extends Controller
             $data['slug'] = Str::slug($request->name);
         }
 
-        if ($request->hasFile('icon')) {
-            $data['icon'] = $this->replaceImage($request->file('icon'), 'categories', $category->icon);
+        if ($request->hasFile('image')) {
+            $data['image'] = $this->replaceImage($request->file('image'), 'categories', $category->image);
         }
 
         $category->update($data);
@@ -123,7 +123,7 @@ class AdminCategoryController extends Controller
             ], 422);
         }
 
-        $this->deleteImage($category->icon);
+        $this->deleteImage($category->image);
         $category->delete();
 
         return response()->json([
@@ -138,7 +138,7 @@ class AdminCategoryController extends Controller
             'id'             => $category->id,
             'name'           => $category->name,
             'slug'           => $category->slug,
-            'icon_url'       => $category->icon ? asset($category->icon) : null,
+            'image_url'      => $category->image ? asset($category->image) : null,
             'is_active'      => $category->is_active,
             'services_count' => $category->services_count ?? null,
             'created_at'     => $category->created_at->toDateTimeString(),
