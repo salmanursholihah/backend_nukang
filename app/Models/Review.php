@@ -11,6 +11,11 @@ class Review extends Model
 
     protected $guarded = [];
 
+    protected $casts = [
+        'tags'         => 'array',
+        'is_published' => 'boolean',
+    ];
+
     public function order()
     {
         return $this->belongsTo(Order::class);

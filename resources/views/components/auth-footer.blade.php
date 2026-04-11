@@ -1,3 +1,3 @@
-  <div class="simple-footer">
-      Copyright &copy; Stisla 2018
-  </div>
+<div class="simple-footer mt-5">
+    Copyright &copy; {{ date('Y') }} <b>Nukang</b>
+</div>
