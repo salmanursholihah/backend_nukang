@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\Api\Bca\BcaVaController;
 use App\Http\Controllers\Api\Customer\CategoryController;
 use App\Http\Controllers\Api\Customer\ChatController;
 use App\Http\Controllers\Api\Customer\DashboardController;
@@ -16,6 +17,7 @@ use App\Http\Controllers\Api\Tukang\TukangEarningController;
 use App\Http\Controllers\Api\Tukang\TukangOrderController;
 use App\Http\Controllers\Api\Tukang\TukangProfileController;
 use App\Http\Controllers\Api\Tukang\TukangSurveyController;
+use App\Http\Controllers\VirtualAccountController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -30,9 +32,31 @@ use Illuminate\Support\Facades\Route;
 |
 */
 
+
+
+///integrasi va bank bca ////
+Route::post('/callback', [BcaVaController::class, 'callback']);
+Route::get('/bca-token',[BcaVaController::class, 'token ']);
+Route::post('/bca-va', [BcaVaController::class, 'createVa']);
+
+//integrasi bca fix
+Route::prefix('payment')->group(function () {
+    Route::post('/va/create', [VirtualAccountController::class, 'create']);
+    Route::get('/va/{vaNumber}', [VirtualAccountController::class, 'status']);
+});
+
+// Route::post('/bca/callback', [VirtualAccountController::class, 'callback'])
+//     ->middleware('verify.bca.callback');
+
+Route::post('/bca/callback', [VirtualAccountController::class, 'callback']);
+
+////
+
 Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
     return $request->user();
 });
+
+
 
 
 /*

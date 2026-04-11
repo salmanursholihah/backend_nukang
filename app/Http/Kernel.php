@@ -66,5 +66,6 @@ class Kernel extends HttpKernel
         'verified' => \Illuminate\Auth\Middleware\EnsureEmailIsVerified::class,
         'role' => \App\Http\Middleware\RoleMiddleware::class,
         'admin' => \App\Http\Middleware\AdminMiddleware::class,
+        'verify.bca.callback' => \App\Http\Middleware\VerifyBcaCallback::class,
     ];
 }

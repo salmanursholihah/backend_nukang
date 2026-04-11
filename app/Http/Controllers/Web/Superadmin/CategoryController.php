@@ -54,4 +54,14 @@ class CategoryController extends Controller
 
         return back()->with('success', 'Category deleted successfully');
     }
+    public function edit($id)
+    {
+        $category = Category::findOrFail($id);
+
+        return view('pages.admin.categories.edit', compact('category'));
+    }
+    public function create()
+    {
+        return view('pages.admin.categories.create');
+    }
 }

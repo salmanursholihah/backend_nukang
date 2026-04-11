@@ -11,6 +11,8 @@ use App\Http\Controllers\Web\Superadmin\SurveyController;
 use App\Http\Controllers\Web\Superadmin\TukangController;
 use App\Http\Controllers\Web\Superadmin\UserController;
 use App\Models\PartnerEarning;
+use App\Services\Bca\TokenService;
+use App\Services\Bca\VirtualAccountService;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -304,6 +306,18 @@ use Illuminate\Support\Facades\Route;
 // });
 
 
+Route::get('/', function () {
+    return redirect()->route('login');
+});
+
+////integrasi va bca
+Route::get('/test-token', function () {
+    return app(TokenService::class)->getToken();
+});
+Route::get('/test-va', function () {
+    return app(VirtualAccountService::class)->createVA();
+});
+
 Route::get('/login', [AuthController::class, 'showLogin'])->name('login');
 Route::post('/login', [AuthController::class, 'login']);
 
@@ -323,8 +337,14 @@ Route::prefix('admin')->middleware(['auth'])->group(function () {
     Route::resource('services', ServiceController::class);
     Route::resource('users', UserController::class);
     Route::resource('tukangs', TukangController::class);
+    Route::post('/tukangs/{id}/verify', [TukangController::class, 'verify'])
+        ->name('tukangs.verify');
+    Route::post('/tukangs/{id}/reject', [TukangController::class, 'reject'])
+        ->name('tukangs.reject');
     Route::resource('orders', OrderController::class);
     Route::resource('earnings', EarningsController::class);
+    Route::post('/earnings/{id}/pay', [EarningsController::class, 'pay'])
+        ->name('earnings.pay');
     Route::resource('reviews', ReviewController::class);
 
     Route::get('reviews/{id}/hide', [ReviewController::class, 'hide'])->name('reviews.hide');

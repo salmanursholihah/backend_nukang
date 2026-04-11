@@ -19,4 +19,14 @@ public function index()
 
         return view('pages.admin.orders.index', compact('orders'));
     }
-}
+
+public function show($id)
+{
+    $order = Order::with([
+        'customer',
+        'tukang',
+        'details.service'
+    ])->findOrFail($id);
+
+    return view('pages.admin.orders.show', compact('order'));
+}}

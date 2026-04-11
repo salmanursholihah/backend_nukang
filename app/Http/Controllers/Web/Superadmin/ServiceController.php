@@ -37,4 +37,15 @@ class ServiceController extends Controller
 
         return back();
     }
+
+    public function edit()
+    {
+        return view('pages.admin.services.edit', compact('services', 'categories'));
+    }
+
+    public function create()
+    {
+        $categories = Category::all();
+        return view('pages.admin.services.create', compact('categories'));
+    }
 }
