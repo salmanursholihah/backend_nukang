@@ -11,6 +11,8 @@ class Category extends Model
 
     protected $guarded = [];
 
+    protected $casts = ['is_active' => 'boolean'];
+
     public function services()
     {
         return $this->hasMany(Service::class);

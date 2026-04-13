@@ -65,7 +65,10 @@ class Kernel extends HttpKernel
         'throttle' => \Illuminate\Routing\Middleware\ThrottleRequests::class,
         'verified' => \Illuminate\Auth\Middleware\EnsureEmailIsVerified::class,
         'role' => \App\Http\Middleware\RoleMiddleware::class,
+<<<<<<< HEAD
         'admin' => \App\Http\Middleware\AdminMiddleware::class,
         'verify.bca.callback' => \App\Http\Middleware\VerifyBcaCallback::class,
+=======
+>>>>>>> 7ce728f3b5a40b966c12bbd32c474593d4a3e292
     ];
 }
