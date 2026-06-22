@@ -1,5 +1,20 @@
 <?php
 
+<<<<<<< HEAD
+use App\Http\Controllers\Web\Auth\AuthController;
+use App\Http\Controllers\Web\Superadmin\CategoryController;
+use App\Http\Controllers\Web\Superadmin\DashboardController;
+use App\Http\Controllers\Web\Superadmin\EarningsController;
+use App\Http\Controllers\Web\Superadmin\OrderController;
+use App\Http\Controllers\Web\Superadmin\ReviewController;
+use App\Http\Controllers\Web\Superadmin\ServiceController;
+use App\Http\Controllers\Web\Superadmin\SurveyController;
+use App\Http\Controllers\Web\Superadmin\TukangController;
+use App\Http\Controllers\Web\Superadmin\UserController;
+use App\Models\PartnerEarning;
+use App\Services\Bca\TokenService;
+use App\Services\Bca\VirtualAccountService;
+=======
 use App\Http\Controllers\Web\Admin\CategoryController;
 use App\Http\Controllers\Web\Admin\DashboardController;
 use App\Http\Controllers\Web\Admin\EarningController;
@@ -11,6 +26,7 @@ use App\Http\Controllers\Web\Admin\SurveyController;
 use App\Http\Controllers\Web\Admin\UserController;
 use App\Http\Controllers\Web\Admin\WithdrawalController;
 use App\Http\Controllers\Web\AuthController;
+>>>>>>> 7ce728f3b5a40b966c12bbd32c474593d4a3e292
 use Illuminate\Support\Facades\Route;
 
 // =============================================================
@@ -72,6 +88,22 @@ Route::middleware('auth')->group(function () {
             Route::resource('/categories', CategoryController::class);
 
 
+<<<<<<< HEAD
+Route::get('/', function () {
+    return redirect()->route('login');
+});
+
+////integrasi va bca
+Route::get('/test-token', function () {
+    return app(TokenService::class)->getToken();
+});
+Route::get('/test-va', function () {
+    return app(VirtualAccountService::class)->createVA();
+});
+
+Route::get('/login', [AuthController::class, 'showLogin'])->name('login');
+Route::post('/login', [AuthController::class, 'login']);
+=======
             // ── Services ──────────────────────────────────────
             // GET    /admin/services
             // GET    /admin/services/create
@@ -81,6 +113,7 @@ Route::middleware('auth')->group(function () {
             // PUT    /admin/services/{service}
             // DELETE /admin/services/{service}
             Route::resource('/services', ServiceController::class);
+>>>>>>> 7ce728f3b5a40b966c12bbd32c474593d4a3e292
 
 
             // ── Orders ────────────────────────────────────────
@@ -99,6 +132,21 @@ Route::middleware('auth')->group(function () {
             Route::get('/surveys/{survey}', [SurveyController::class, 'show'])->name('surveys.show');
 
 
+<<<<<<< HEAD
+    Route::resource('categories', CategoryController::class);
+    Route::resource('services', ServiceController::class);
+    Route::resource('users', UserController::class);
+    Route::resource('tukangs', TukangController::class);
+    Route::post('/tukangs/{id}/verify', [TukangController::class, 'verify'])
+        ->name('tukangs.verify');
+    Route::post('/tukangs/{id}/reject', [TukangController::class, 'reject'])
+        ->name('tukangs.reject');
+    Route::resource('orders', OrderController::class);
+    Route::resource('earnings', EarningsController::class);
+    Route::post('/earnings/{id}/pay', [EarningsController::class, 'pay'])
+        ->name('earnings.pay');
+    Route::resource('reviews', ReviewController::class);
+=======
             // ── Earnings ──────────────────────────────────────
             // GET  /admin/earnings             → daftar semua earning
             // GET  /admin/earnings/{earning}   → detail earning
@@ -106,6 +154,7 @@ Route::middleware('auth')->group(function () {
             Route::get('/earnings',                      [EarningController::class, 'index'])->name('earnings.index');
             Route::get('/earnings/{earning}',            [EarningController::class, 'show'])->name('earnings.show');
             Route::put('/earnings/{earning}/settle',     [EarningController::class, 'settle'])->name('earnings.settle');
+>>>>>>> 7ce728f3b5a40b966c12bbd32c474593d4a3e292
 
 
         // ── Withdrawals ───────────────────────────────────

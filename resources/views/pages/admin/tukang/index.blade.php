@@ -4,13 +4,15 @@
 
 @section('main')
 
+<section class="section">
+
     <div class="section-header">
         <h1>Tukang Management</h1>
     </div>
 
     <div class="section-body">
 
-        @if (session('success'))
+        @if(session('success'))
             <div class="alert alert-success">
                 {{ session('success') }}
             </div>
@@ -20,6 +22,12 @@
 
             <div class="card-header">
                 <h4>Partner Tukang List</h4>
+
+                <div class="card-header-action">
+                    <a href="{{ route('tukangs.create') }}" class="btn btn-primary">
+                        + Add Tukang
+                    </a>
+                </div>
             </div>
 
             <div class="card-body">
@@ -51,7 +59,7 @@
                                     <td>{{ $tukang->rating }}</td>
 
                                     <td>
-                                        @if ($tukang->is_verified)
+                                        @if($tukang->is_verified)
                                             <span class="badge badge-success">Verified</span>
                                         @else
                                             <span class="badge badge-danger">Pending</span>
@@ -60,26 +68,24 @@
 
                                     <td>
 
-                                        {{-- Edit --}}
-                                        <button class="btn btn-warning btn-sm" data-toggle="modal"
-                                            data-target="#editModal{{ $tukang->id }}">
+                                        <a href="{{ route('tukangs.edit', $tukang->id) }}"
+                                           class="btn btn-warning btn-sm">
                                             Edit
-                                        </button>
+                                        </a>
 
-                                        {{-- Verify --}}
-                                        <a href="{{ route('tukang.verify', $tukang->id) }}" class="btn btn-success btn-sm">
+                                        <a href="{{ route('tukangs.verify', $tukang->id) }}"
+                                           class="btn btn-success btn-sm">
                                             Verify
                                         </a>
 
-                                        {{-- Reject --}}
-                                        <a href="{{ route('tukang.reject', $tukang->id) }}"
-                                            class="btn btn-secondary btn-sm">
+                                        <a href="{{ route('tukangs.reject', $tukang->id) }}"
+                                           class="btn btn-secondary btn-sm">
                                             Reject
                                         </a>
 
-                                        {{-- Delete --}}
-                                        <form action="{{ route('tukang.destroy', $tukang->id) }}" method="POST"
-                                            style="display:inline-block;">
+                                        <form action="{{ route('tukangs.destroy', $tukang->id) }}"
+                                              method="POST"
+                                              style="display:inline-block;">
                                             @csrf
                                             @method('DELETE')
 
@@ -91,69 +97,7 @@
 
                                     </td>
                                 </tr>
-
-                                {{-- Edit Modal --}}
-                                <div class="modal fade" id="editModal{{ $tukang->id }}" tabindex="-1">
-                                    <div class="modal-dialog">
-                                        <div class="modal-content">
-
-                                            <form action="{{ route('tukang.update', $tukang->id) }}" method="POST">
-                                                @csrf
-                                                @method('PUT')
-
-                                                <div class="modal-header">
-                                                    <h5>Edit Tukang</h5>
-                                                    <button type="button" class="close" data-dismiss="modal">
-                                                        <span>&times;</span>
-                                                    </button>
-                                                </div>
-
-                                                <div class="modal-body">
-
-                                                    <div class="form-group">
-                                                        <label>Skill</label>
-                                                        <input type="text" name="skill" class="form-control"
-                                                            value="{{ $tukang->skill }}">
-                                                    </div>
-
-                                                    <div class="form-group">
-                                                        <label>Experience</label>
-                                                        <input type="text" name="experience" class="form-control"
-                                                            value="{{ $tukang->experience }}">
-                                                    </div>
-
-                                                    <div class="form-group">
-                                                        <label>Rating</label>
-                                                        <input type="number" step="0.1" name="rating"
-                                                            class="form-control" value="{{ $tukang->rating }}">
-                                                    </div>
-
-                                                    <div class="form-group">
-                                                        <label>Verification</label>
-                                                        <select name="is_verified" class="form-control">
-                                                            <option value="1"
-                                                                {{ $tukang->is_verified ? 'selected' : '' }}>Verified
-                                                            </option>
-                                                            <option value="0"
-                                                                {{ !$tukang->is_verified ? 'selected' : '' }}>Pending
-                                                            </option>
-                                                        </select>
-                                                    </div>
-
-                                                </div>
-
-                                                <div class="modal-footer">
-                                                    <button class="btn btn-primary">Update</button>
-                                                </div>
-
-                                            </form>
-
-                                        </div>
-                                    </div>
-                                </div>
-
                             @empty
-
                                 <tr>
                                     <td colspan="7" class="text-center">No Data</td>
                                 </tr>
@@ -165,7 +109,6 @@
 
                 </div>
 
-                {{-- Pagination --}}
                 <div class="mt-3">
                     {{ $tukangs->links() }}
                 </div>
@@ -175,5 +118,7 @@
         </div>
 
     </div>
+
+</section>
 
 @endsection

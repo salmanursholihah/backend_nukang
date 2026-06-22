@@ -11,6 +11,8 @@ class TukangProfile extends Model
 
     protected $guarded = [];
 
+<<<<<<< HEAD
+=======
     protected $casts = [
         'latitude'     => 'decimal:7',
         'longitude'    => 'decimal:7',
@@ -20,6 +22,7 @@ class TukangProfile extends Model
         'is_available' => 'boolean',
     ];
 
+>>>>>>> 7ce728f3b5a40b966c12bbd32c474593d4a3e292
     public function user()
     {
         return $this->belongsTo(User::class);

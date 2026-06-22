@@ -8,6 +8,7 @@ use App\Models\SurveyRequest;
 use App\Observers\OrderObserver;
 use App\Observers\ReviewObserver;
 use App\Observers\SurveyRequestObserver;
+use Illuminate\Support\Facades\URL;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -25,6 +26,8 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        URL::forceScheme('https');
+
         Review::observe(ReviewObserver::class);
         Order::observe(OrderObserver::class);
         SurveyRequest::observe(SurveyRequestObserver::class);

@@ -3,11 +3,22 @@
 
 <head>
     <meta charset="UTF-8">
+<<<<<<< HEAD
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, shrink-to-fit=no">
+    <title>@yield('title', 'Nukang Admin')</title>
+=======
     <meta content="width=device-width, initial-scale=1, maximum-scale=1, shrink-to-fit=no" name="viewport">
     <title>@yield('title', 'Dashboard') &mdash; Nukang Admin</title>
+>>>>>>> 7ce728f3b5a40b966c12bbd32c474593d4a3e292
 
+    <!-- CSS -->
     <link rel="stylesheet" href="{{ asset('assets/library/bootstrap/dist/css/bootstrap.min.css') }}">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.1.1/css/all.min.css">
+<<<<<<< HEAD
+
+    <!-- Custom Style -->
+=======
+>>>>>>> 7ce728f3b5a40b966c12bbd32c474593d4a3e292
     <link rel="stylesheet" href="{{ asset('assets/css/style.css') }}">
     <link rel="stylesheet" href="{{ asset('assets/css/components.css') }}">
 
@@ -16,19 +27,27 @@
 
 <body>
     <div id="app">
-        <div class="main-wrapper">
+        <div class="main-wrapper main-wrapper-1">
 
             @include('components.header')
             @include('components.sidebar')
 
+<<<<<<< HEAD
+            <!-- Main Content -->
+            <div class="main-content">
+                @yield('main')
+            </div>
+=======
             {{-- Main Content --}}
             @yield('main')
+>>>>>>> 7ce728f3b5a40b966c12bbd32c474593d4a3e292
 
             @include('components.footer')
 
         </div>
     </div>
 
+    <!-- JS -->
     <script src="{{ asset('assets/library/jquery/dist/jquery.min.js') }}"></script>
     <script src="{{ asset('assets/library/popper.js/dist/umd/popper.js') }}"></script>
     <script src="{{ asset('assets/library/bootstrap/dist/js/bootstrap.min.js') }}"></script>

@@ -8,6 +8,9 @@
             <h4>Login Admin</h4>
         </div>
         <div class="card-body">
+<<<<<<< HEAD
+            <form method="POST" action="{{ route('login') }}">
+=======
 
             {{-- Alert Error --}}
             @if ($errors->any())
@@ -24,6 +27,7 @@
             @endif
 
             <form method="POST" action="{{ route('login.post') }}">
+>>>>>>> 7ce728f3b5a40b966c12bbd32c474593d4a3e292
                 @csrf
 
                 {{-- Email --}}

@@ -3,9 +3,9 @@
 @section('title', 'Order Detail')
 
 @section('main')
-
+<section class="section">
     <div class="section-header">
-        <h1>Order Detail</h1>
+        <h1>Order Details</h1>
     </div>
 
     <div class="card">
@@ -44,5 +44,6 @@
         </div>
 
     </div>
+</section>
 
 @endsection

@@ -4,6 +4,8 @@
 
 @section('main')
 
+<section class="section">
+
     <div class="section-header">
         <h1>Create Survey</h1>
     </div>
@@ -33,27 +35,27 @@
                 </div>
 
                 <div class="form-group">
-                    <label>Order</label>
-                    <select name="order_id" class="form-control">
-                        @foreach ($orders as $order)
-                            <option value="{{ $order->id }}">#{{ $order->id }}</option>
+                    <label>Service</label>
+                    <select name="service_id" class="form-control">
+                        @foreach ($services as $service)
+                            <option value="{{ $service->id }}">{{ $service->name }}</option>
                         @endforeach
                     </select>
                 </div>
 
                 <div class="form-group">
+                    <label>Address</label>
+                    <textarea name="address" class="form-control"></textarea>
+                </div>
+
+                <div class="form-group">
                     <label>Survey Date</label>
-                    <input type="date" name="survey_date" class="form-control">
+                    <input type="datetime-local" name="survey_date" class="form-control">
                 </div>
 
                 <div class="form-group">
-                    <label>Location</label>
-                    <input type="text" name="location" class="form-control">
-                </div>
-
-                <div class="form-group">
-                    <label>Description</label>
-                    <textarea name="description" class="form-control"></textarea>
+                    <label>Survey Fee</label>
+                    <input type="number" name="survey_fee" class="form-control">
                 </div>
 
                 <div class="form-group">
@@ -62,20 +64,36 @@
                 </div>
 
                 <div class="form-group">
+                    <label>Estimated Days</label>
+                    <input type="number" name="estimated_days" class="form-control">
+                </div>
+
+                <div class="form-group">
+                    <label>Notes</label>
+                    <textarea name="notes" class="form-control"></textarea>
+                </div>
+
+                <div class="form-group">
                     <label>Status</label>
                     <select name="status" class="form-control">
-                        <option value="pending">Pending</option>
-                        <option value="approved">Approved</option>
+
+                        <option value="requested">Requested</option>
+                        <option value="accepted">Accepted</option>
                         <option value="rejected">Rejected</option>
-                        <option value="completed">Completed</option>
+                        <option value="survey_priced">Survey Priced</option>
+                        <option value="estimated">Estimated</option>
+                        <option value="approved">Approved</option>
+                        <option value="cancelled">Cancelled</option>
+
                     </select>
                 </div>
 
-                <button class="btn btn-primary">Save</button>
+                <button class="btn btn-primary">Save Survey</button>
 
             </form>
 
         </div>
     </div>
+</section>
 
 @endsection

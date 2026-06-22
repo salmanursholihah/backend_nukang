@@ -9,26 +9,43 @@ use App\Http\Controllers\Api\Admin\AdminServiceController;
 use App\Http\Controllers\Api\Admin\AdminSurveyController;
 use App\Http\Controllers\Api\Admin\AdminUserController;
 use App\Http\Controllers\Api\Admin\AdminWithdrawalController;
+
 use App\Http\Controllers\Api\AuthController;
-use App\Http\Controllers\Api\ChatController;
+
+use App\Http\Controllers\Api\Bca\BcaVaController;
+
+use App\Http\Controllers\Api\Customer\CategoryController;
+use App\Http\Controllers\Api\Customer\DashboardController;
 use App\Http\Controllers\Api\Customer\OrderController;
 use App\Http\Controllers\Api\Customer\PaymentController;
 use App\Http\Controllers\Api\Customer\ReviewController;
 use App\Http\Controllers\Api\Customer\SurveyRequestController;
+
+use App\Http\Controllers\Api\Chat\ChatController;
+use App\Http\Controllers\Api\Chat\MessageController;
+use App\Http\Controllers\Api\Chat\NotificationController;
+
 use App\Http\Controllers\Api\NotificationController as ApiNotificationController;
-use App\Http\Controllers\Api\Public\CategoryController;
+use App\Http\Controllers\Api\MidtransWebhookController;
+use App\Http\Controllers\Api\UserNotificationController;
+
+use App\Http\Controllers\Api\Public\CategoryController as PublicCategoryController;
 use App\Http\Controllers\Api\Public\ServiceController;
 use App\Http\Controllers\Api\Public\TukangController;
+
 use App\Http\Controllers\Api\Tukang\EarningController;
 use App\Http\Controllers\Api\Tukang\JobOrderController;
 use App\Http\Controllers\Api\Tukang\JobSurveyController;
+use App\Http\Controllers\Api\Tukang\PartnerDashboardController;
 use App\Http\Controllers\Api\Tukang\TukangLocationController;
 use App\Http\Controllers\Api\Tukang\TukangProfileController;
 use App\Http\Controllers\Api\Tukang\WithdrawalController;
-use App\Http\Controllers\Api\UserNotificationController;
-use App\Http\Controllers\Api\MidtransWebhookController;
+
+use App\Http\Controllers\VirtualAccountController;
+
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
-use App\Http\Controllers\Api\Tukang\PartnerDashboardController;
+
 
 // // =============================================================
 // // PUBLIC — Tanpa Auth
@@ -391,6 +408,38 @@ use App\Http\Controllers\Api\Tukang\PartnerDashboardController;
 // =============================================================
 // PUBLIC — Tanpa Auth
 // =============================================================
+
+
+///integrasi va bank bca ////
+Route::post('/callback', [BcaVaController::class, 'callback']);
+Route::get('/bca-token',[BcaVaController::class, 'token ']);
+Route::post('/bca-va', [BcaVaController::class, 'createVa']);
+
+//integrasi bca fix
+Route::prefix('payment')->group(function () {
+    Route::post('/va/create', [VirtualAccountController::class, 'create']);
+    Route::get('/va/{vaNumber}', [VirtualAccountController::class, 'status']);
+});
+
+// Route::post('/bca/callback', [VirtualAccountController::class, 'callback'])
+//     ->middleware('verify.bca.callback');
+
+Route::post('/bca/callback', [VirtualAccountController::class, 'callback']);
+
+////
+
+Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
+    return $request->user();
+});
+
+
+
+
+/*
+|--------------------------------------------------------------------------
+| Public
+|--------------------------------------------------------------------------
+*/
 
 Route::post('/register', [AuthController::class, 'register']);
 Route::post('/login',    [AuthController::class, 'login']);

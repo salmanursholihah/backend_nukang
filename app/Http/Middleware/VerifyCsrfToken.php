@@ -12,6 +12,7 @@ class VerifyCsrfToken extends Middleware
      * @var array<int, string>
      */
     protected $except = [
-        'api/payment/notification', // Tambahkan endpoint webhook Midtrans di sini
+        'api/payment/notification',
+        'api/bca/callback',
     ];
 }
