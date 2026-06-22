@@ -4,14 +4,14 @@ namespace App\Http\Middleware;
 
 use Closure;
 use Illuminate\Http\Request;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\RedirectResponse;
 use Symfony\Component\HttpFoundation\Response;
 
 class RoleMiddleware
 {
-
     public function handle(Request $request, Closure $next, ...$roles): Response
     {
-        // Cek apakah user sudah login
         if (! $request->user()) {
             if ($request->expectsJson() || $request->is('api/*')) {
                 return response()->json([
@@ -22,7 +22,6 @@ class RoleMiddleware
             return redirect()->route('login');
         }
 
-        // Cek role
         if (! in_array($request->user()->role, $roles)) {
             if ($request->expectsJson() || $request->is('api/*')) {
                 return response()->json([
@@ -33,7 +32,6 @@ class RoleMiddleware
             abort(403, 'Unauthorized. Akses ditolak.');
         }
 
-        // Cek akun aktif
         if (! $request->user()->is_active) {
             if ($request->expectsJson() || $request->is('api/*')) {
                 return response()->json([

@@ -44,4 +44,11 @@ class Service extends Model
             ->withPivot('custom_price', 'notes')
             ->withTimestamps();
     }
+
+    public function tukangServices()
+    {
+        return $this->belongsToMany(Service::class, 'tukang_services', 'service_id', 'tukang_id')
+            ->withPivot('custom_price', 'notes')
+            ->withTimestamps();
+    }
 }

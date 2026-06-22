@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\Chat;
 
+use App\Events\MessageSent;
 use App\Http\Controllers\Controller;
 use App\Models\Chat;
 use App\Models\Message;
@@ -132,6 +133,7 @@ class MessageController extends Controller
             'type'       => $messageType,
             'is_read'    => false,
         ]);
+        broadcast(new MessageSent($message))->toOthers();
 
         // Update last_message_at di chat
         $chat->update(['last_message_at' => now()]);

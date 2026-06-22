@@ -16,6 +16,10 @@ class Review extends Model
         'is_published' => 'boolean',
     ];
 
+    public function media()
+    {
+        return $this->hasMany(ReviewMedia::class);
+    }
     public function order()
     {
         return $this->belongsTo(Order::class);

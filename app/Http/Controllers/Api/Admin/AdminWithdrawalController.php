@@ -55,46 +55,151 @@ class AdminWithdrawalController extends Controller
         ]);
     }
 
-    // PUT /api/admin/withdrawals/{withdrawal}/approve
+    // // PUT /api/admin/withdrawals/{withdrawal}/approve
+    // public function approve(Request $request, Withdrawal $withdrawal): JsonResponse
+    // {
+    //     if ($withdrawal->status !== 'pending') {
+    //         return response()->json([
+    //             'status'  => false,
+    //             'message' => 'Hanya withdrawal pending yang bisa disetujui.',
+    //         ], 422);
+    //     }
+
+    //     $request->validate([
+    //         'reference_id' => 'nullable|string|max:100',
+    //     ]);
+
+    //     $withdrawal->update([
+    //         'status'       => 'success',
+    //         'reference_id' => $request->input('reference_id'),
+    //         'processed_at' => now(),
+    //     ]);
+
+    //     // Update earning tukang → paid
+    //     PartnerEarning::where('tukang_id', $withdrawal->tukang_id)
+    //         ->where('status', 'settled')
+    //         ->update(['status' => 'paid']);
+
+    //     NotificationHelper::withdrawalProcessed($withdrawal, 'success');
+
+    //     return response()->json([
+    //         'status'  => true,
+    //         'message' => 'Penarikan berhasil disetujui dan ditransfer.',
+    //     ]);
+    // }
+
+    // // PUT /api/admin/withdrawals/{withdrawal}/reject
+    // public function reject(Request $request, Withdrawal $withdrawal): JsonResponse
+    // {
+    //     if ($withdrawal->status !== 'pending') {
+    //         return response()->json([
+    //             'status'  => false,
+    //             'message' => 'Hanya withdrawal pending yang bisa ditolak.',
+    //         ], 422);
+    //     }
+
+    //     $request->validate([
+    //         'notes' => 'required|string|max:255',
+    //     ]);
+
+    //     $withdrawal->update([
+    //         'status'       => 'failed',
+    //         'notes'        => $request->notes,
+    //         'processed_at' => now(),
+    //     ]);
+
+    //     NotificationHelper::withdrawalProcessed($withdrawal, 'failed');
+
+    //     return response()->json([
+    //         'status'  => true,
+    //         'message' => 'Penarikan ditolak.',
+    //     ]);
+    // }
     public function approve(Request $request, Withdrawal $withdrawal): JsonResponse
     {
-        if ($withdrawal->status !== 'pending') {
+        if (!in_array($withdrawal->status, ['pending', 'processing'])) {
             return response()->json([
                 'status'  => false,
-                'message' => 'Hanya withdrawal pending yang bisa disetujui.',
+                'message' => 'Withdrawal tidak bisa diapprove dengan status: ' . $withdrawal->status,
             ], 422);
         }
 
         $request->validate([
             'reference_id' => 'nullable|string|max:100',
+            'notes'        => 'nullable|string|max:255',
         ]);
 
-        $withdrawal->update([
+        DB::beginTransaction();
+        try {
+            // 1. Update withdrawal → success
+            $withdrawal->update([
             'status'       => 'success',
-            'reference_id' => $request->input('reference_id'),
+                'reference_id' => $request->reference_id,
+                'notes'        => $request->notes,
             'processed_at' => now(),
         ]);
 
-        // Update earning tukang → paid
-        PartnerEarning::where('tukang_id', $withdrawal->tukang_id)
-            ->where('status', 'settled')
-            ->update(['status' => 'paid']);
+            // 2. Update PartnerEarning settled → paid
+            //    Ambil settled earnings tukang ini sampai amount withdrawal terpenuhi
+            $tukangId        = $withdrawal->tukang_id;
+            $remainingAmount = (float) $withdrawal->amount;
 
-        NotificationHelper::withdrawalProcessed($withdrawal, 'success');
+            $settledEarnings = PartnerEarning::where('tukang_id', $tukangId)
+            ->where('status', 'settled')
+                ->orderBy('settled_at')   // FIFO: yang paling lama settled duluan
+                ->get();
+
+            foreach ($settledEarnings as $earning) {
+                if ($remainingAmount <= 0) break;
+
+                $earning->update([
+                    'status' => 'paid',
+                ]);
+
+                $remainingAmount -= (float) $earning->amount;
+            }
+
+            // 3. Notifikasi ke tukang
+            \App\Models\UserNotification::send(
+                userId: $tukangId,
+                title: 'Penarikan Saldo Disetujui',
+                body: 'Permintaan penarikan saldo kamu telah diproses dan berhasil dikirim.',
+                type: 'withdrawal_approved',
+                notifiable: $withdrawal,
+                data: [
+                    'withdrawal_id' => $withdrawal->id,
+                    'amount'        => $withdrawal->amount,
+                    'reference_id'  => $withdrawal->reference_id,
+                ],
+            );
+
+            DB::commit();
 
         return response()->json([
             'status'  => true,
-            'message' => 'Penarikan berhasil disetujui dan ditransfer.',
+                'message' => 'Withdrawal berhasil diapprove.',
+                'data'    => [
+                    'id'           => $withdrawal->id,
+                    'status'       => $withdrawal->status,
+                    'processed_at' => $withdrawal->processed_at?->toDateTimeString(),
+                ],
         ]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json([
+                'status'  => false,
+                'message' => 'Gagal approve withdrawal.',
+                'error'   => $e->getMessage(),
+            ], 500);
+        }
     }
 
-    // PUT /api/admin/withdrawals/{withdrawal}/reject
     public function reject(Request $request, Withdrawal $withdrawal): JsonResponse
     {
         if ($withdrawal->status !== 'pending') {
             return response()->json([
                 'status'  => false,
-                'message' => 'Hanya withdrawal pending yang bisa ditolak.',
+                'message' => 'Withdrawal tidak bisa direject.',
             ], 422);
         }
 
@@ -108,11 +213,19 @@ class AdminWithdrawalController extends Controller
             'processed_at' => now(),
         ]);
 
-        NotificationHelper::withdrawalProcessed($withdrawal, 'failed');
+        // Notifikasi ke tukang
+        \App\Models\UserNotification::send(
+            userId: $withdrawal->tukang_id,
+            title: 'Penarikan Saldo Ditolak',
+            body: 'Permintaan penarikan saldo kamu ditolak. Alasan: ' . $request->notes,
+            type: 'withdrawal_rejected',
+            notifiable: $withdrawal,
+            data: ['withdrawal_id' => $withdrawal->id],
+        );
 
         return response()->json([
             'status'  => true,
-            'message' => 'Penarikan ditolak.',
+            'message' => 'Withdrawal ditolak.',
         ]);
     }
 }

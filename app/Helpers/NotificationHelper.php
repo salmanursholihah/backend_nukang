@@ -250,4 +250,78 @@ class NotificationHelper
             notifiable: $chat
         );
     }
+
+      // ── Booking ───────────────────────────────────────────────
+
+    /**
+     * Customer buat booking order → notif ke tukang
+     * Dipanggil di: Customer/OrderController@createBooking
+     */
+    public static function bookingCreatedForTukang($booking, string $customerName): void
+    {
+        // $booking->survey->tukang_id — ambil tukang dari relasi survey
+        $tukangId = $booking->survey->tukang_id ?? null;
+        if (!$tukangId) return;
+
+        $date = \Carbon\Carbon::parse($booking->scheduled_date)
+            ->translatedFormat('d F Y');
+
+        self::send(
+            userId: $tukangId,
+            title: 'Booking Baru!',
+            body: "{$customerName} menjadwalkan pengerjaan pada {$date}. Siap-siap ya!",
+            type: 'booking',
+            notifiable: $booking
+        );
+    }
+
+    /**
+     * Konfirmasi booking ke customer setelah berhasil dibuat
+     * Dipanggil di: Customer/OrderController@createBooking (setelah bookingCreatedForTukang)
+     */
+    public static function bookingConfirmedForCustomer($booking): void
+    {
+        $date = \Carbon\Carbon::parse($booking->scheduled_date)
+            ->translatedFormat('d F Y');
+
+        self::send(
+            userId: $booking->customer_id,
+            title: 'Booking Dikonfirmasi',
+            body: "Booking kamu untuk {$date} sudah dibuat. Lanjutkan ke pembayaran.",
+            type: 'booking',
+            notifiable: $booking
+        );
+    }
+
+    /**
+     * Notif ke customer setelah payment booking sukses
+     * Dipanggil di: Customer/PaymentController atau Midtrans webhook
+     */
+    public static function bookingPaid($booking): void
+    {
+        $date = \Carbon\Carbon::parse($booking->scheduled_date)
+            ->translatedFormat('d F Y');
+
+        // Notif customer
+        self::send(
+            userId: $booking->customer_id,
+            title: 'Pembayaran Booking Berhasil',
+            body: "Pembayaran untuk booking {$date} telah dikonfirmasi. Tukang akan segera menghubungimu.",
+            type: 'payment',
+            notifiable: $booking
+        );
+
+        // Notif tukang
+        $tukangId = $booking->survey->tukang_id ?? null;
+        if ($tukangId) {
+            $customerName = $booking->customer->name ?? 'Customer';
+            self::send(
+                userId: $tukangId,
+                title: 'Booking Lunas!',
+                body: "{$customerName} sudah membayar booking untuk {$date}. Pastikan kamu siap!",
+                type: 'payment',
+                notifiable: $booking
+            );
+        }
+    }
 }

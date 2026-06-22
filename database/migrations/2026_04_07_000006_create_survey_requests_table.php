@@ -33,6 +33,10 @@ return new class extends Migration
                 'survey_priced', // tukang isi estimasi
                 'approved',     // customer setuju → jadi order
                 'cancelled',
+                'pending',
+                'confirmed',
+                'schedule',
+                'done',
             ])->default('requested');
             $table->timestamps();
         });

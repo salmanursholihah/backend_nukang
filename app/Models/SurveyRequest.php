@@ -43,4 +43,14 @@ class SurveyRequest extends Model
     {
         return $this->hasOne(Order::class);
     }
+
+    public function payments()
+    {
+        return $this->morphMany(Payment::class, 'payable');
+    }
+
+    public function activePayment()
+    {
+        return $this->payments()->where('status', 'pending')->latest()->first();
+    }
 }

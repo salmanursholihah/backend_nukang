@@ -26,13 +26,14 @@ class TukangController extends Controller
     public function index(Request $request): JsonResponse
     {
         $request->validate([
-            'lat'        => 'required|numeric',
-            'lng'        => 'required|numeric',
-            'radius'     => 'sometimes|numeric|min:1|max:100',
-            'service_id' => 'sometimes|exists:services,id',
+            'lat'         => 'required|numeric',
+            'lng'         => 'required|numeric',
+            'radius'      => 'sometimes|numeric|min:1|max:100',
+            'service_id'  => 'sometimes|exists:services,id',
             'category_id' => 'sometimes|exists:categories,id',
-            'min_rating' => 'sometimes|numeric|min:1|max:5',
-            'sort'       => 'sometimes|in:distance,rating,jobs',
+            'min_rating'  => 'sometimes|numeric|min:1|max:5',
+            'sort'        => 'sometimes|in:distance,rating,jobs',
+            'per_page'    => 'sometimes|integer|min:1|max:50',
         ]);
 
         $lat    = $request->lat;
@@ -40,22 +41,60 @@ class TukangController extends Controller
         $radius = $request->get('radius', 10);
         $sort   = $request->get('sort', 'distance');
 
-        $query = TukangLocation::nearby($lat, $lng, $radius)
+        // $query = TukangLocation::nearby($lat, $lng, $radius)
+        //     ->join('users', 'users.id', '=', 'tukang_locations.tukang_id')
+        //     ->join('tukang_profiles', 'tukang_profiles.user_id', '=', 'tukang_locations.tukang_id')
+        //     ->where('users.is_active', true)
+        //     ->where('tukang_profiles.is_available', true)
+        //     // ✅ FIX 1: prefix tukang_locations.is_online agar tidak ambigu
+        //     // saat ada JOIN dengan tabel lain yang juga punya kolom is_online
+        //     ->where('tukang_locations.is_online', true)
+        //     ->select([
+        //         'tukang_locations.tukang_id',
+        //         'tukang_locations.is_online',  // ✅ explicit prefix
+        //         'users.name',
+        //         'tukang_profiles.photo',
+        //         'tukang_profiles.city',
+        //         'tukang_profiles.rating',
+        //         'tukang_profiles.total_jobs',
+        //         'tukang_profiles.total_reviews',
+        //         'tukang_profiles.is_verified',
+        //         'tukang_profiles.radius_km',
+        //     ]);
+
+        $query = TukangLocation::query()
+            ->selectRaw("
+        tukang_locations.tukang_id,
+        tukang_locations.is_online,
+        users.name,
+        tukang_profiles.photo,
+        tukang_profiles.city,
+        tukang_profiles.rating,
+        tukang_profiles.total_jobs,
+        tukang_profiles.total_reviews,
+        tukang_profiles.is_verified,
+        tukang_profiles.radius_km,
+        (
+            6371 * acos(
+                cos(radians(?)) *
+                cos(radians(tukang_locations.latitude)) *
+                cos(radians(tukang_locations.longitude) - radians(?)) +
+                sin(radians(?)) *
+                sin(radians(tukang_locations.latitude))
+            )
+        ) as distance_km
+    ", [$lat, $lng, $lat])
+
             ->join('users', 'users.id', '=', 'tukang_locations.tukang_id')
             ->join('tukang_profiles', 'tukang_profiles.user_id', '=', 'tukang_locations.tukang_id')
+
             ->where('users.is_active', true)
             ->where('tukang_profiles.is_available', true)
-            ->select([
-                'tukang_locations.tukang_id',
-                'users.name',
-                'tukang_profiles.photo',
-                'tukang_profiles.city',
-                'tukang_profiles.rating',
-                'tukang_profiles.total_jobs',
-                'tukang_profiles.total_reviews',
-                'tukang_profiles.is_verified',
-                'tukang_profiles.radius_km',
-            ]);
+            ->where('tukang_locations.is_online', true)
+
+            ->having('distance_km', '<=', $radius)
+
+            ->orderBy('distance_km');
 
         // Filter by service
         if ($request->filled('service_id')) {
@@ -63,11 +102,16 @@ class TukangController extends Controller
                 ->where('tukang_services.service_id', $request->service_id);
         }
 
-        // Filter by kategori
+        // ✅ FIX 2: filter by kategori pakai whereIn subquery
+        // menghindari JOIN ganda yang menyebabkan is_online ambigu
+        // dan menghindari duplicate row tukang
         if ($request->filled('category_id')) {
-            $query->join('tukang_services as ts2', 'ts2.tukang_id', '=', 'tukang_locations.tukang_id')
-                ->join('services as sv', 'sv.id', '=', 'ts2.service_id')
-                ->where('sv.category_id', $request->category_id);
+            $query->whereIn('tukang_locations.tukang_id', function ($sub) use ($request) {
+                $sub->select('tukang_services.tukang_id')
+                    ->from('tukang_services')
+                    ->join('services', 'services.id', '=', 'tukang_services.service_id')
+                    ->where('services.category_id', $request->category_id);
+            });
         }
 
         // Filter by rating minimal
@@ -75,24 +119,32 @@ class TukangController extends Controller
             $query->where('tukang_profiles.rating', '>=', $request->min_rating);
         }
 
+        // ✅ FIX 3: distinct agar tidak ada tukang duplikat
+        // (bisa muncul duplikat jika tukang punya banyak service dalam 1 kategori)
+        $query->distinct();
+
         // Sorting
         match ($sort) {
-            'rating'   => $query->orderByDesc('tukang_profiles.rating'),
-            'jobs'     => $query->orderByDesc('tukang_profiles.total_jobs'),
-            default    => $query->orderBy('distance_km'),
+            'rating' => $query->orderByDesc('tukang_profiles.rating'),
+            'jobs'   => $query->orderByDesc('tukang_profiles.total_jobs'),
+            default  => $query->orderBy('distance_km'),
         };
 
-        $tukangs = $query->get();
+        // ✅ Pagination agar Flutter bisa load more
+        $perPage = $request->get('per_page', 10);
+        $tukangs = $query->paginate($perPage);
 
         return response()->json([
             'status' => true,
             'meta'   => [
-                'total'     => $tukangs->count(),
-                'radius_km' => $radius,
-                'lat'       => $lat,
-                'lng'       => $lng,
+                'total'        => $tukangs->total(),
+                'current_page' => $tukangs->currentPage(),
+                'last_page'    => $tukangs->lastPage(),
+                'radius_km'    => $radius,
+                'lat'          => $lat,
+                'lng'          => $lng,
             ],
-            'data' => $tukangs->map(fn($t) => $this->formatTukangCard($t)),
+            'data' => collect($tukangs->items())->map(fn($t) => $this->formatTukangCard($t)),
         ]);
     }
 
@@ -336,3 +388,7 @@ class TukangController extends Controller
         return $earthRadius * $c;
     }
 }
+
+
+
+

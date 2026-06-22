@@ -24,7 +24,9 @@ return new class extends Migration
                 'earning',
                 'system',
             ])->default('system');
-            $table->nullableMorphs('notifiable');                 // polymorphic ke order/chat/dll
+            $table->nullableMorphs('notifiable');
+            $table->unsignedBigInteger('reference_id')->nullable(); // ← pastikan ada
+            $table->json('data')->nullable();               // polymorphic ke order/chat/dll
             $table->boolean('is_read')->default(false);
             $table->timestamp('read_at')->nullable();
             $table->timestamps();

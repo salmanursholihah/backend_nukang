@@ -23,6 +23,7 @@ class UserSeeder extends Seeder
             'email_verified_at' => now(),
         ]);
 
+        
         // ── 5 Customer dummy ─────────────────────────────────
         User::factory()->customer()->count(5)->create();
 

@@ -1,0 +1,3211 @@
+
+
+===== EarningController =====
+<?php
+
+namespace App\Http\Controllers\Api\Tukang;
+
+use App\Http\Controllers\Controller;
+use App\Models\PartnerEarning;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+
+class EarningController extends Controller
+{
+    // =========================================================
+    // INDEX — Riwayat pendapatan tukang
+    // GET /api/tukang/earnings
+    // Query params:
+    //   ?status=pending|settled|paid
+    //   ?per_page=10
+    // =========================================================
+
+    public function index(Request $request): JsonResponse
+    {
+        $query = PartnerEarning::with('order:id,order_number,service_date,completed_at')
+            ->where('tukang_id', $request->user()->id);
+
+        if ($request->filled('status')) {
+            $query->where('status', $request->status);
+        }
+
+        $earnings = $query->latest()->paginate($request->get('per_page', 10));
+
+        return response()->json([
+            'status' => true,
+            'meta'   => [
+                'total'        => $earnings->total(),
+                'current_page' => $earnings->currentPage(),
+                'last_page'    => $earnings->lastPage(),
+            ],
+            'data' => collect($earnings->items())->map(fn($e) => $this->formatEarning($e)),
+        ]);
+    }
+
+
+    // =========================================================
+    // SUMMARY — Ringkasan saldo tukang
+    // GET /api/tukang/earnings/summary
+    // =========================================================
+
+    public function summary(Request $request): JsonResponse
+    {
+        $tukangId = $request->user()->id;
+
+        $totals = PartnerEarning::where('tukang_id', $tukangId)
+            ->selectRaw('
+                SUM(amount) as total_earned,
+                SUM(CASE WHEN status = "pending"  THEN amount ELSE 0 END) as total_pending,
+                SUM(CASE WHEN status = "settled"  THEN amount ELSE 0 END) as total_settled,
+                SUM(CASE WHEN status = "paid"     THEN amount ELSE 0 END) as total_paid,
+                SUM(platform_fee) as total_platform_fee,
+                COUNT(*) as total_jobs
+            ')
+            ->first();
+
+        // Saldo yang bisa dicairkan = settled (sudah selesai tapi belum withdraw)
+        $withdrawn = \App\Models\Withdrawal::where('tukang_id', $tukangId)
+            ->whereIn('status', ['pending', 'processing', 'success'])
+            ->sum('amount');
+
+        $availableBalance = ($totals->total_settled ?? 0) - $withdrawn;
+
+        return response()->json([
+            'status' => true,
+            'data'   => [
+                'available_balance' => max(0, $availableBalance), // saldo bisa dicairkan
+                'total_earned'      => $totals->total_earned      ?? 0,
+                'total_pending'     => $totals->total_pending     ?? 0, // menunggu order selesai
+                'total_settled'     => $totals->total_settled     ?? 0, // siap dicairkan
+                'total_paid'        => $totals->total_paid        ?? 0, // sudah dicairkan
+                'total_platform_fee' => $totals->total_platform_fee ?? 0,
+                'total_jobs'        => $totals->total_jobs        ?? 0,
+            ],
+        ]);
+    }
+
+
+    // =========================================================
+    // HELPERS
+    // =========================================================
+
+    private function formatEarning(PartnerEarning $earning): array
+    {
+        return [
+            'id'           => $earning->id,
+            'order_amount' => $earning->order_amount,
+            'platform_fee' => $earning->platform_fee,
+            'amount'       => $earning->amount,
+            'status'       => $earning->status,
+            'settled_at'   => $earning->settled_at?->toDateTimeString(),
+            'created_at'   => $earning->created_at->toDateTimeString(),
+            'order'        => $earning->relationLoaded('order') ? [
+                'id'           => $earning->order->id,
+                'order_number' => $earning->order->order_number,
+                'service_date' => $earning->order->service_date?->toDateTimeString(),
+                'completed_at' => $earning->order->completed_at?->toDateTimeString(),
+            ] : null,
+        ];
+    }
+}
+
+
+===== JobOrderController =====
+<?php
+
+namespace App\Http\Controllers\Api\Tukang;
+use App\Http\Controllers\Controller;
+use App\Models\Order;
+use App\Models\OrderProgress;
+use App\Models\OrderProgressPhoto;
+use App\Traits\ImageUploadTrait;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
+
+class JobOrderController extends Controller
+{
+    use ImageUploadTrait;
+
+    // =========================================================
+    // INDEX — Daftar order yang masuk ke tukang
+    // GET /api/tukang/orders
+    // =========================================================
+    public function index(Request $request): JsonResponse
+    {
+        $query = Order::with([
+                'customer:id,name,avatar',
+                'details.service:id,name,thumbnail',
+                'payment:id,order_id,status,method',
+            ])
+            ->where('tukang_id', $request->user()->id);
+
+        if ($request->filled('status')) {
+            $query->where('status', $request->status);
+        }
+
+        $orders = $query->latest()->paginate($request->get('per_page', 10));
+
+        return response()->json([
+            'status' => true,
+            'meta'   => [
+                'total'        => $orders->total(),
+                'current_page' => $orders->currentPage(),
+                'last_page'    => $orders->lastPage(),
+                'summary'      => $this->getStatusSummary($request->user()->id),
+            ],
+            'data' => collect($orders->items())->map(fn($o) => $this->formatOrder($o)),
+        ]);
+    }
+
+    // =========================================================
+    // SHOW — Detail order
+    // GET /api/tukang/orders/{order}
+    // =========================================================
+    public function show(Request $request, Order $order): JsonResponse
+    {
+        if ($order->tukang_id !== $request->user()->id) {
+            return response()->json([
+                'status'  => false,
+                'message' => 'Order tidak ditemukan.',
+            ], 404);
+        }
+
+        $order->load([
+            'customer:id,name,avatar,phone',
+            'details.service:id,name,thumbnail,unit',
+            'progresses.photos',   // ← load foto per progress
+            'payment:id,order_id,status,method,paid_at',
+            'review:id,order_id,rating,comment,tags',
+        ]);
+
+        return response()->json([
+            'status' => true,
+            'data'   => $this->formatOrderDetail($order),
+        ]);
+    }
+
+    // =========================================================
+    // ACCEPT
+    // =========================================================
+    public function accept(Request $request, Order $order): JsonResponse
+    {
+        if ($order->tukang_id !== $request->user()->id) {
+            return response()->json(['status' => false, 'message' => 'Order tidak ditemukan.'], 404);
+        }
+
+        if ($order->status !== 'pending') {
+            return response()->json(['status' => false, 'message' => 'Order hanya bisa diterima jika masih berstatus pending.'], 422);
+        }
+
+        $order->update(['status' => 'accepted']);
+
+        return response()->json([
+            'status'  => true,
+            'message' => 'Order berhasil diterima.',
+            'data'    => $this->formatOrder($order->fresh()),
+        ]);
+    }
+
+    // =========================================================
+    // REJECT
+    // =========================================================
+    public function reject(Request $request, Order $order): JsonResponse
+    {
+        if ($order->tukang_id !== $request->user()->id) {
+            return response()->json(['status' => false, 'message' => 'Order tidak ditemukan.'], 404);
+        }
+
+        if ($order->status !== 'pending') {
+            return response()->json(['status' => false, 'message' => 'Order hanya bisa ditolak jika masih berstatus pending.'], 422);
+        }
+
+        $request->validate(['cancel_reason' => 'required|string|max:255']);
+
+        $order->update([
+            'status'        => 'cancelled',
+            'cancel_reason' => $request->cancel_reason,
+        ]);
+
+        return response()->json([
+            'status'  => true,
+            'message' => 'Order ditolak.',
+            'data'    => $this->formatOrder($order->fresh()),
+        ]);
+    }
+
+    // =========================================================
+    // START
+    // =========================================================
+    public function start(Request $request, Order $order): JsonResponse
+    {
+        if ($order->tukang_id !== $request->user()->id) {
+            return response()->json(['status' => false, 'message' => 'Order tidak ditemukan.'], 404);
+        }
+
+        if ($order->status !== 'accepted') {
+            return response()->json(['status' => false, 'message' => 'Order harus berstatus accepted sebelum bisa dimulai.'], 422);
+        }
+
+        $order->update([
+            'status'     => 'on_progress',
+            'started_at' => now(),
+        ]);
+
+        return response()->json([
+            'status'  => true,
+            'message' => 'Pengerjaan dimulai.',
+            'data'    => $this->formatOrder($order->fresh()),
+        ]);
+    }
+
+    // =========================================================
+    // COMPLETE
+    // =========================================================
+    public function complete(Request $request, Order $order): JsonResponse
+    {
+        if ($order->tukang_id !== $request->user()->id) {
+            return response()->json(['status' => false, 'message' => 'Order tidak ditemukan.'], 404);
+        }
+
+        if ($order->status !== 'on_progress') {
+            return response()->json(['status' => false, 'message' => 'Order harus berstatus on_progress untuk diselesaikan.'], 422);
+        }
+
+        $order->update([
+            'status'       => 'completed',
+            'completed_at' => now(),
+        ]);
+
+        return response()->json([
+            'status'  => true,
+            'message' => 'Order selesai. Pendapatan akan segera diproses.',
+            'data'    => $this->formatOrder($order->fresh()),
+        ]);
+    }
+
+    // =========================================================
+    // ADD PROGRESS — Tambah tahap progress + multi foto
+    // POST /api/tukang/orders/{order}/progress
+    //
+    // Body (multipart/form-data):
+    //   title       : string (required)
+    //   description : string (optional)
+    //   percent     : integer 0–100 (required)
+    //   photos[]    : image jpg/jpeg/png/webp, max 5 file, max 3MB each
+    // =========================================================
+    public function addProgress(Request $request, Order $order): JsonResponse
+    {
+        if ($order->tukang_id !== $request->user()->id) {
+            return response()->json([
+                'status'  => false,
+                'message' => 'Order tidak ditemukan.',
+            ], 404);
+        }
+
+        if ($order->status !== 'on_progress') {
+            return response()->json([
+                'status'  => false,
+                'message' => 'Progress hanya bisa ditambahkan saat order sedang dikerjakan.',
+            ], 422);
+        }
+
+        $request->validate([
+            'title'       => 'required|string|max:255',
+            'description' => 'nullable|string',
+            'percent'     => 'required|integer|min:0|max:100',
+            'photos'      => 'nullable|array|max:5',
+            'photos.*'    => 'image|mimes:jpg,jpeg,png,webp|max:3072',
+        ]);
+
+        DB::beginTransaction();
+        try {
+            // Buat progress
+            $progress = OrderProgress::create([
+                'order_id'    => $order->id,
+                'title'       => $request->title,
+                'description' => $request->description,
+                'percent'     => $request->percent,
+                'reported_at' => now(),
+            ]);
+
+            // Upload multi foto jika ada
+            $photoData = [];
+            if ($request->hasFile('photos')) {
+                foreach ($request->file('photos') as $foto) {
+                    // Pakai ImageUploadTrait yang sudah ada
+                    $path = $this->uploadImage($foto, 'orders');
+                    $url  = asset($path);
+
+                    $photo = OrderProgressPhoto::create([
+                        'order_progress_id' => $progress->id,
+                        'photo_path'        => $path,
+                        'photo_url'         => $url,
+                    ]);
+
+                    $photoData[] = [
+                        'id'        => $photo->id,
+                        'photo_url' => $url,
+                    ];
+                }
+            }
+
+            DB::commit();
+
+            return response()->json([
+                'status'  => true,
+                'message' => 'Progress berhasil ditambahkan.',
+                'data'    => [
+                    'id'          => $progress->id,
+                    'title'       => $progress->title,
+                    'description' => $progress->description,
+                    'percent'     => $progress->percent,
+                    'reported_at' => $progress->reported_at?->toDateTimeString(),
+                    'photos'      => $photoData,
+                    'created_at'  => $progress->created_at->toDateTimeString(),
+                ],
+            ], 201);
+
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            return response()->json([
+                'status'  => false,
+                'message' => 'Terjadi kesalahan: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    // =========================================================
+    // DELETE PROGRESS — Hapus tahap progress beserta fotonya
+    // DELETE /api/tukang/orders/{order}/progress/{progress}
+    // =========================================================
+    public function deleteProgress(Request $request, Order $order, OrderProgress $progress): JsonResponse
+    {
+        if ($order->tukang_id !== $request->user()->id) {
+            return response()->json([
+                'status'  => false,
+                'message' => 'Order tidak ditemukan.',
+            ], 404);
+        }
+
+        if ($progress->order_id !== $order->id) {
+            return response()->json([
+                'status'  => false,
+                'message' => 'Progress tidak ditemukan.',
+            ], 404);
+        }
+
+        // Hapus semua foto dari storage
+        foreach ($progress->photos as $photo) {
+            $this->deleteImage($photo->photo_path);
+        }
+
+        $progress->delete();
+
+        return response()->json([
+            'status'  => true,
+            'message' => 'Progress berhasil dihapus.',
+        ]);
+    }
+
+    // =========================================================
+    // PRIVATE HELPERS
+    // =========================================================
+    private function getStatusSummary(int $tukangId): array
+    {
+        $counts = Order::where('tukang_id', $tukangId)
+            ->selectRaw('status, count(*) as total')
+            ->groupBy('status')
+            ->pluck('total', 'status')
+            ->toArray();
+
+        return [
+            'pending'     => $counts['pending']     ?? 0,
+            'accepted'    => $counts['accepted']    ?? 0,
+            'on_progress' => $counts['on_progress'] ?? 0,
+            'completed'   => $counts['completed']   ?? 0,
+            'cancelled'   => $counts['cancelled']   ?? 0,
+        ];
+    }
+
+    private function formatOrder(Order $order): array
+    {
+        return [
+            'id'             => $order->id,
+            'order_number'   => $order->order_number,
+            'status'         => $order->status,
+            'service_date'   => $order->service_date?->toDateTimeString(),
+            'address'        => $order->address,
+            'latitude'       => $order->latitude,
+            'longitude'      => $order->longitude,
+            'subtotal'       => $order->subtotal,
+            'service_fee'    => $order->service_fee,
+            'total_price'    => $order->total_price,
+            'notes'          => $order->notes,
+            'cancel_reason'  => $order->cancel_reason,
+            'started_at'     => $order->started_at?->toDateTimeString(),
+            'completed_at'   => $order->completed_at?->toDateTimeString(),
+            'created_at'     => $order->created_at->toDateTimeString(),
+            'customer'       => $order->relationLoaded('customer') ? [
+                'id'         => $order->customer->id,
+                'name'       => $order->customer->name,
+                'avatar_url' => $order->customer->avatar
+                    ? asset($order->customer->avatar) : null,
+            ] : null,
+            'items'          => $order->relationLoaded('details')
+                ? $order->details->map(fn($d) => [
+                    'id'            => $d->id,
+                    'service_name'  => $d->service_name,
+                    'price'         => $d->price,
+                    'qty'           => $d->qty,
+                    'subtotal'      => $d->subtotal,
+                    'thumbnail_url' => $d->service?->thumbnail
+                        ? asset($d->service->thumbnail) : null,
+                ]) : [],
+            'payment_status' => $order->relationLoaded('payment')
+                ? $order->payment?->status : null,
+        ];
+    }
+
+    private function formatOrderDetail(Order $order): array
+    {
+        $data = $this->formatOrder($order);
+
+        $data['customer']['phone'] = $order->customer?->phone;
+
+        // Progress sekarang include foto
+        $data['progresses'] = $order->relationLoaded('progresses')
+            ? $order->progresses->map(fn($p) => [
+                'id'          => $p->id,
+                'title'       => $p->title,
+                'description' => $p->description,
+                'percent'     => $p->percent,
+                'reported_at' => $p->reported_at?->toDateTimeString(),
+                'photos'      => $p->relationLoaded('photos')
+                    ? $p->photos->map(fn($ph) => [
+                        'id'        => $ph->id,
+                        'photo_url' => $ph->photo_url,
+                    ]) : [],
+                'created_at'  => $p->created_at->toDateTimeString(),
+            ]) : [];
+
+        $data['payment'] = $order->relationLoaded('payment') && $order->payment ? [
+            'status'  => $order->payment->status,
+            'method'  => $order->payment->method,
+            'paid_at' => $order->payment->paid_at?->toDateTimeString(),
+        ] : null;
+
+        $data['review'] = $order->relationLoaded('review') && $order->review ? [
+            'rating'  => $order->review->rating,
+            'comment' => $order->review->comment,
+            'tags'    => $order->review->tags,
+        ] : null;
+
+        return $data;
+    }
+}
+
+
+///code sebelumnya
+// use App\Http\Controllers\Controller;
+// use App\Models\Order;
+// use App\Models\OrderProgress;
+// use App\Traits\ImageUploadTrait;
+// use Illuminate\Http\JsonResponse;
+// use Illuminate\Http\Request;
+
+// class JobOrderController extends Controller
+// {
+//       use ImageUploadTrait;
+
+//     // =========================================================
+//     // INDEX — Daftar order yang masuk ke tukang
+//     // GET /api/tukang/orders
+//     // Query params:
+//     //   ?status=pending|accepted|on_progress|completed|cancelled
+//     //   ?per_page=10
+//     // =========================================================
+
+//     public function index(Request $request): JsonResponse
+//     {
+//         $query = Order::with([
+//                 'customer:id,name,avatar',
+//                 'details.service:id,name,thumbnail',
+//                 'payment:id,order_id,status,method',
+//             ])
+//             ->where('tukang_id', $request->user()->id);
+
+//         if ($request->filled('status')) {
+//             $query->where('status', $request->status);
+//         }
+
+//         $orders = $query->latest()->paginate($request->get('per_page', 10));
+
+//         return response()->json([
+//             'status' => true,
+//             'meta'   => [
+//                 'total'        => $orders->total(),
+//                 'current_page' => $orders->currentPage(),
+//                 'last_page'    => $orders->lastPage(),
+//                 // Ringkasan jumlah per status
+//                 'summary'      => $this->getStatusSummary($request->user()->id),
+//             ],
+//             'data' => collect($orders->items())->map(fn($o) => $this->formatOrder($o)),
+//         ]);
+//     }
+
+
+//     // =========================================================
+//     // SHOW — Detail order
+//     // GET /api/tukang/orders/{order}
+//     // =========================================================
+
+//     public function show(Request $request, Order $order): JsonResponse
+//     {
+//         if ($order->tukang_id !== $request->user()->id) {
+//             return response()->json([
+//                 'status'  => false,
+//                 'message' => 'Order tidak ditemukan.',
+//             ], 404);
+//         }
+
+//         $order->load([
+//             'customer:id,name,avatar,phone',
+//             'details.service:id,name,thumbnail,unit',
+//             'progresses',
+//             'payment:id,order_id,status,method,paid_at',
+//             'review:id,order_id,rating,comment,tags',
+//         ]);
+
+//         return response()->json([
+//             'status' => true,
+//             'data'   => $this->formatOrderDetail($order),
+//         ]);
+//     }
+
+
+//     // =========================================================
+//     // ACCEPT — Terima order
+//     // PUT /api/tukang/orders/{order}/accept
+//     // =========================================================
+
+//     public function accept(Request $request, Order $order): JsonResponse
+//     {
+//         if ($order->tukang_id !== $request->user()->id) {
+//             return response()->json([
+//                 'status'  => false,
+//                 'message' => 'Order tidak ditemukan.',
+//             ], 404);
+//         }
+
+//         if ($order->status !== 'pending') {
+//             return response()->json([
+//                 'status'  => false,
+//                 'message' => 'Order hanya bisa diterima jika masih berstatus pending.',
+//             ], 422);
+//         }
+
+//         $order->update(['status' => 'accepted']);
+
+//         return response()->json([
+//             'status'  => true,
+//             'message' => 'Order berhasil diterima.',
+//             'data'    => $this->formatOrder($order->fresh()),
+//         ]);
+//     }
+
+
+//     // =========================================================
+//     // REJECT — Tolak order
+//     // PUT /api/tukang/orders/{order}/reject
+//     // Body:
+//     //   cancel_reason : string (required)
+//     // =========================================================
+
+//     public function reject(Request $request, Order $order): JsonResponse
+//     {
+//         if ($order->tukang_id !== $request->user()->id) {
+//             return response()->json([
+//                 'status'  => false,
+//                 'message' => 'Order tidak ditemukan.',
+//             ], 404);
+//         }
+
+//         if ($order->status !== 'pending') {
+//             return response()->json([
+//                 'status'  => false,
+//                 'message' => 'Order hanya bisa ditolak jika masih berstatus pending.',
+//             ], 422);
+//         }
+
+//         $request->validate([
+//             'cancel_reason' => 'required|string|max:255',
+//         ]);
+
+//         $order->update([
+//             'status'        => 'cancelled',
+//             'cancel_reason' => $request->cancel_reason,
+//         ]);
+
+//         return response()->json([
+//             'status'  => true,
+//             'message' => 'Order ditolak.',
+//             'data'    => $this->formatOrder($order->fresh()),
+//         ]);
+//     }
+
+
+//     // =========================================================
+//     // START — Mulai pengerjaan
+//     // PUT /api/tukang/orders/{order}/start
+//     // =========================================================
+
+//     public function start(Request $request, Order $order): JsonResponse
+//     {
+//         if ($order->tukang_id !== $request->user()->id) {
+//             return response()->json([
+//                 'status'  => false,
+//                 'message' => 'Order tidak ditemukan.',
+//             ], 404);
+//         }
+
+//         if ($order->status !== 'accepted') {
+//             return response()->json([
+//                 'status'  => false,
+//                 'message' => 'Order harus berstatus accepted sebelum bisa dimulai.',
+//             ], 422);
+//         }
+
+//         $order->update([
+//             'status'     => 'on_progress',
+//             'started_at' => now(),
+//         ]);
+
+//         return response()->json([
+//             'status'  => true,
+//             'message' => 'Pengerjaan dimulai.',
+//             'data'    => $this->formatOrder($order->fresh()),
+//         ]);
+//     }
+
+
+//     // =========================================================
+//     // COMPLETE — Selesaikan order
+//     // PUT /api/tukang/orders/{order}/complete
+//     // =========================================================
+
+//     public function complete(Request $request, Order $order): JsonResponse
+//     {
+//         if ($order->tukang_id !== $request->user()->id) {
+//             return response()->json([
+//                 'status'  => false,
+//                 'message' => 'Order tidak ditemukan.',
+//             ], 404);
+//         }
+
+//         if ($order->status !== 'on_progress') {
+//             return response()->json([
+//                 'status'  => false,
+//                 'message' => 'Order harus berstatus on_progress untuk diselesaikan.',
+//             ], 422);
+//         }
+
+//         $order->update([
+//             'status'       => 'completed',
+//             'completed_at' => now(),
+//         ]);
+
+//         // Observer akan otomatis:
+//         // - increment total_jobs di tukang_profiles
+//         // - buat partner_earnings
+
+//         return response()->json([
+//             'status'  => true,
+//             'message' => 'Order selesai. Pendapatan akan segera diproses.',
+//             'data'    => $this->formatOrder($order->fresh()),
+//         ]);
+//     }
+
+
+//     // =========================================================
+//     // ADD PROGRESS — Tambah foto progress pengerjaan
+//     // POST /api/tukang/orders/{order}/progress
+//     // Body (multipart):
+//     //   title       : string (required)
+//     //   description : string (optional)
+//     //   photo       : image (optional)
+//     // =========================================================
+
+//     public function addProgress(Request $request, Order $order): JsonResponse
+//     {
+//         if ($order->tukang_id !== $request->user()->id) {
+//             return response()->json([
+//                 'status'  => false,
+//                 'message' => 'Order tidak ditemukan.',
+//             ], 404);
+//         }
+
+//         if ($order->status !== 'on_progress') {
+//             return response()->json([
+//                 'status'  => false,
+//                 'message' => 'Progress hanya bisa ditambahkan saat order sedang dikerjakan.',
+//             ], 422);
+//         }
+
+//         $request->validate([
+//             'title'       => 'required|string|max:255',
+//             'description' => 'nullable|string',
+//             'photo'       => 'nullable|image|mimes:jpg,jpeg,png,webp|max:3072',
+//         ]);
+
+//         $photoPath = null;
+//         if ($request->hasFile('photo')) {
+//             // Simpan ke public/images/orders/
+//             $photoPath = $this->uploadImage($request->file('photo'), 'orders');
+//         }
+
+//         $progress = OrderProgress::create([
+//             'order_id'    => $order->id,
+//             'title'       => $request->title,
+//             'description' => $request->description,
+//             'photo'       => $photoPath,
+//         ]);
+
+//         return response()->json([
+//             'status'  => true,
+//             'message' => 'Progress berhasil ditambahkan.',
+//             'data'    => [
+//                 'id'          => $progress->id,
+//                 'title'       => $progress->title,
+//                 'description' => $progress->description,
+//                 'photo_url'   => $progress->photo ? asset($progress->photo) : null,
+//                 'created_at'  => $progress->created_at->toDateTimeString(),
+//             ],
+//         ], 201);
+//     }
+
+
+//     // =========================================================
+//     // DELETE PROGRESS — Hapus foto progress
+//     // DELETE /api/tukang/orders/{order}/progress/{progress}
+//     // =========================================================
+
+//     public function deleteProgress(Request $request, Order $order, OrderProgress $progress): JsonResponse
+//     {
+//         if ($order->tukang_id !== $request->user()->id) {
+//             return response()->json([
+//                 'status'  => false,
+//                 'message' => 'Order tidak ditemukan.',
+//             ], 404);
+//         }
+
+//         if ($progress->order_id !== $order->id) {
+//             return response()->json([
+//                 'status'  => false,
+//                 'message' => 'Progress tidak ditemukan.',
+//             ], 404);
+//         }
+
+//         // Hapus foto dari public/images/orders/
+//         $this->deleteImage($progress->photo);
+//         $progress->delete();
+
+//         return response()->json([
+//             'status'  => true,
+//             'message' => 'Progress berhasil dihapus.',
+//         ]);
+//     }
+
+
+//     // =========================================================
+//     // PRIVATE HELPERS
+//     // =========================================================
+
+//     private function getStatusSummary(int $tukangId): array
+//     {
+//         $counts = Order::where('tukang_id', $tukangId)
+//             ->selectRaw('status, count(*) as total')
+//             ->groupBy('status')
+//             ->pluck('total', 'status')
+//             ->toArray();
+
+//         return [
+//             'pending'     => $counts['pending']     ?? 0,
+//             'accepted'    => $counts['accepted']    ?? 0,
+//             'on_progress' => $counts['on_progress'] ?? 0,
+//             'completed'   => $counts['completed']   ?? 0,
+//             'cancelled'   => $counts['cancelled']   ?? 0,
+//         ];
+//     }
+
+//     private function formatOrder(Order $order): array
+//     {
+//         return [
+//             'id'             => $order->id,
+//             'order_number'   => $order->order_number,
+//             'status'         => $order->status,
+//             'service_date'   => $order->service_date?->toDateTimeString(),
+//             'address'        => $order->address,
+//             'latitude'       => $order->latitude,
+//             'longitude'      => $order->longitude,
+//             'subtotal'       => $order->subtotal,
+//             'service_fee'    => $order->service_fee,
+//             'total_price'    => $order->total_price,
+//             'notes'          => $order->notes,
+//             'cancel_reason'  => $order->cancel_reason,
+//             'started_at'     => $order->started_at?->toDateTimeString(),
+//             'completed_at'   => $order->completed_at?->toDateTimeString(),
+//             'created_at'     => $order->created_at->toDateTimeString(),
+//             'customer'       => $order->relationLoaded('customer') ? [
+//                 'id'         => $order->customer->id,
+//                 'name'       => $order->customer->name,
+//                 'avatar_url' => $order->customer->avatar
+//                     ? asset($order->customer->avatar) : null,
+//             ] : null,
+//             'items'          => $order->relationLoaded('details')
+//                 ? $order->details->map(fn($d) => [
+//                     'id'            => $d->id,
+//                     'service_name'  => $d->service_name,
+//                     'price'         => $d->price,
+//                     'qty'           => $d->qty,
+//                     'subtotal'      => $d->subtotal,
+//                     'thumbnail_url' => $d->service?->thumbnail
+//                         ? asset($d->service->thumbnail) : null,
+//                 ]) : [],
+//             'payment_status' => $order->relationLoaded('payment')
+//                 ? $order->payment?->status : null,
+//         ];
+//     }
+
+//     private function formatOrderDetail(Order $order): array
+//     {
+//         $data = $this->formatOrder($order);
+
+//         // Tambahan untuk detail
+//         $data['customer']['phone'] = $order->customer?->phone;
+
+//         $data['progresses'] = $order->relationLoaded('progresses')
+//             ? $order->progresses->map(fn($p) => [
+//                 'id'          => $p->id,
+//                 'title'       => $p->title,
+//                 'description' => $p->description,
+//                 'photo_url'   => $p->photo ? asset($p->photo) : null,
+//                 'created_at'  => $p->created_at->toDateTimeString(),
+//             ]) : [];
+
+//         $data['payment'] = $order->relationLoaded('payment') && $order->payment ? [
+//             'status'   => $order->payment->status,
+//             'method'   => $order->payment->method,
+//             'paid_at'  => $order->payment->paid_at?->toDateTimeString(),
+//         ] : null;
+
+//         $data['review'] = $order->relationLoaded('review') && $order->review ? [
+//             'rating'  => $order->review->rating,
+//             'comment' => $order->review->comment,
+//             'tags'    => $order->review->tags,
+//         ] : null;
+
+//         return $data;
+//     }
+// }
+
+
+
+
+
+
+
+===== JobSurveyController =====
+<?php
+
+// namespace App\Http\Controllers\Api\Tukang;
+
+// use App\Http\Controllers\Controller;
+// use App\Models\Service;
+// use App\Models\SurveyRequest;
+// use App\Models\SurveyRequestService;
+// use Illuminate\Http\JsonResponse;
+// use Illuminate\Http\Request;
+// use Illuminate\Support\Facades\DB;
+
+// class JobSurveyController extends Controller
+// {
+//        // =========================================================
+//     // INDEX — Daftar survey yang ditugaskan ke tukang
+//     // GET /api/tukang/surveys
+//     // Query params:
+//     //   ?status=requested|accepted|rejected|on_survey|survey_priced|approved|cancelled
+//     //   ?per_page=10
+//     // =========================================================
+
+//     public function index(Request $request): JsonResponse
+//     {
+//         $query = SurveyRequest::with([
+//                 'customer:id,name,avatar,phone',
+//                 'service:id,name,thumbnail',
+//             ])
+//             ->where('tukang_id', $request->user()->id);
+
+//         if ($request->filled('status')) {
+//             $query->where('status', $request->status);
+//         }
+
+//         $surveys = $query->latest()->paginate($request->get('per_page', 10));
+
+//         return response()->json([
+//             'status' => true,
+//             'meta'   => [
+//                 'total'        => $surveys->total(),
+//                 'current_page' => $surveys->currentPage(),
+//                 'last_page'    => $surveys->lastPage(),
+//                 'summary'      => $this->getStatusSummary($request->user()->id),
+//             ],
+//             'data' => collect($surveys->items())->map(fn($s) => $this->formatSurvey($s)),
+//         ]);
+//     }
+
+
+//     // =========================================================
+//     // SHOW — Detail survey
+//     // GET /api/tukang/surveys/{survey}
+//     // =========================================================
+
+//     public function show(Request $request, SurveyRequest $survey): JsonResponse
+//     {
+//         if ($survey->tukang_id !== $request->user()->id) {
+//             return response()->json([
+//                 'status'  => false,
+//                 'message' => 'Survey tidak ditemukan.',
+//             ], 404);
+//         }
+
+//         $survey->load([
+//             'customer:id,name,avatar,phone',
+//             'service:id,name,thumbnail,description,unit',
+//             'surveyServices.service:id,name,unit',
+//             'order:id,order_number,status',
+//         ]);
+
+//         return response()->json([
+//             'status' => true,
+//             'data'   => $this->formatSurveyDetail($survey),
+//         ]);
+//     }
+
+
+//     // =========================================================
+//     // ACCEPT — Terima survey
+//     // PUT /api/tukang/surveys/{survey}/accept
+//     // =========================================================
+
+//     public function accept(Request $request, SurveyRequest $survey): JsonResponse
+//     {
+//         if ($survey->tukang_id !== $request->user()->id) {
+//             return response()->json([
+//                 'status'  => false,
+//                 'message' => 'Survey tidak ditemukan.',
+//             ], 404);
+//         }
+
+//         if ($survey->status !== 'requested') {
+//             return response()->json([
+//                 'status'  => false,
+//                 'message' => 'Survey hanya bisa diterima jika berstatus requested.',
+//             ], 422);
+//         }
+
+//         $survey->update(['status' => 'accepted']);
+
+//         return response()->json([
+//             'status'  => true,
+//             'message' => 'Survey berhasil diterima. Datang sesuai jadwal yang disepakati.',
+//             'data'    => $this->formatSurvey($survey->fresh()),
+//         ]);
+//     }
+
+
+//     // =========================================================
+//     // REJECT — Tolak survey
+//     // PUT /api/tukang/surveys/{survey}/reject
+//     // Body:
+//     //   tukang_notes : string (required)
+//     // =========================================================
+
+//     public function reject(Request $request, SurveyRequest $survey): JsonResponse
+//     {
+//         if ($survey->tukang_id !== $request->user()->id) {
+//             return response()->json([
+//                 'status'  => false,
+//                 'message' => 'Survey tidak ditemukan.',
+//             ], 404);
+//         }
+
+//         if ($survey->status !== 'requested') {
+//             return response()->json([
+//                 'status'  => false,
+//                 'message' => 'Survey hanya bisa ditolak jika berstatus requested.',
+//             ], 422);
+//         }
+
+//         $request->validate([
+//             'tukang_notes' => 'required|string|max:255',
+//         ]);
+
+//         $survey->update([
+//             'status'       => 'rejected',
+//             'tukang_notes' => $request->tukang_notes,
+//         ]);
+
+//         return response()->json([
+//             'status'  => true,
+//             'message' => 'Survey ditolak.',
+//             'data'    => $this->formatSurvey($survey->fresh()),
+//         ]);
+//     }
+
+
+//     // =========================================================
+//     // SET PRICE — Tukang isi estimasi harga setelah survey
+//     // PUT /api/tukang/surveys/{survey}/set-price
+//     // Body:
+//     //   survey_fee      : decimal (optional) biaya survey
+//     //   estimated_days  : int (required) estimasi hari pengerjaan
+//     //   tukang_notes    : string (optional) catatan tukang
+//     //   services        : array (required) detail estimasi per service
+//     //     - service_id        : int
+//     //     - estimated_price   : decimal
+//     //     - qty               : int
+//     //     - notes             : string (optional)
+//     // =========================================================
+
+//     public function setPrice(Request $request, SurveyRequest $survey): JsonResponse
+//     {
+//         if ($survey->tukang_id !== $request->user()->id) {
+//             return response()->json([
+//                 'status'  => false,
+//                 'message' => 'Survey tidak ditemukan.',
+//             ], 404);
+//         }
+
+//         if (! in_array($survey->status, ['accepted', 'on_survey'])) {
+//             return response()->json([
+//                 'status'  => false,
+//                 'message' => 'Estimasi hanya bisa diisi setelah survey diterima.',
+//             ], 422);
+//         }
+
+//         $request->validate([
+//             'survey_fee'                    => 'nullable|numeric|min:0',
+//             'estimated_days'                => 'required|integer|min:1',
+//             'tukang_notes'                  => 'nullable|string',
+//             'services'                      => 'required|array|min:1',
+//             'services.*.service_id'         => 'required|exists:services,id',
+//             'services.*.estimated_price'    => 'required|numeric|min:0',
+//             'services.*.qty'                => 'required|integer|min:1',
+//             'services.*.notes'              => 'nullable|string',
+//         ]);
+
+//         DB::beginTransaction();
+//         try {
+//             // Hapus estimasi lama jika ada
+//             $survey->surveyServices()->delete();
+
+//             // Hitung total estimasi
+//             $totalEstimated = 0;
+//             foreach ($request->services as $item) {
+//                 $service        = Service::find($item['service_id']);
+//                 $itemTotal      = $item['estimated_price'] * $item['qty'];
+//                 $totalEstimated += $itemTotal;
+
+//                 SurveyRequestService::create([
+//                     'survey_request_id' => $survey->id,
+//                     'service_id'        => $item['service_id'],
+//                     'service_name'      => $service->name,
+//                     'estimated_price'   => $item['estimated_price'],
+//                     'qty'               => $item['qty'],
+//                     'notes'             => $item['notes'] ?? null,
+//                 ]);
+//             }
+
+//             // Update survey dengan total estimasi
+//             $survey->update([
+//                 'status'          => 'survey_priced',
+//                 'survey_fee'      => $request->input('survey_fee'),
+//                 'estimated_price' => $totalEstimated,
+//                 'estimated_days'  => $request->estimated_days,
+//                 'tukang_notes'    => $request->input('tukang_notes'),
+//             ]);
+
+//             DB::commit();
+
+//             $survey->load([
+//                 'customer:id,name,avatar',
+//                 'service:id,name,thumbnail',
+//                 'surveyServices.service:id,name,unit',
+//             ]);
+
+//             return response()->json([
+//                 'status'  => true,
+//                 'message' => 'Estimasi harga berhasil dikirim. Menunggu persetujuan customer.',
+//                 'data'    => $this->formatSurveyDetail($survey),
+//             ]);
+
+//         } catch (\Exception $e) {
+//             DB::rollBack();
+//             return response()->json([
+//                 'status'  => false,
+//                 'message' => 'Gagal menyimpan estimasi. Silakan coba lagi.',
+//                 'error'   => $e->getMessage(),
+//             ], 500);
+//         }
+//     }
+
+
+//     // =========================================================
+//     // PRIVATE HELPERS
+//     // =========================================================
+
+//     private function getStatusSummary(int $tukangId): array
+//     {
+//         $counts = SurveyRequest::where('tukang_id', $tukangId)
+//             ->selectRaw('status, count(*) as total')
+//             ->groupBy('status')
+//             ->pluck('total', 'status')
+//             ->toArray();
+
+//         return [
+//             'requested'    => $counts['requested']    ?? 0,
+//             'accepted'     => $counts['accepted']     ?? 0,
+//             'on_survey'    => $counts['on_survey']    ?? 0,
+//             'survey_priced'=> $counts['survey_priced']?? 0,
+//             'approved'     => $counts['approved']     ?? 0,
+//             'rejected'     => $counts['rejected']     ?? 0,
+//             'cancelled'    => $counts['cancelled']    ?? 0,
+//         ];
+//     }
+
+//     private function formatSurvey(SurveyRequest $survey): array
+//     {
+//         return [
+//             'id'              => $survey->id,
+//             'status'          => $survey->status,
+//             'address'         => $survey->address,
+//             'latitude'        => $survey->latitude,
+//             'longitude'       => $survey->longitude,
+//             'survey_date'     => $survey->survey_date?->toDateTimeString(),
+//             'survey_fee'      => $survey->survey_fee,
+//             'estimated_price' => $survey->estimated_price,
+//             'estimated_days'  => $survey->estimated_days,
+//             'notes'           => $survey->notes,
+//             'tukang_notes'    => $survey->tukang_notes,
+//             'created_at'      => $survey->created_at->toDateTimeString(),
+//             'service'         => $survey->relationLoaded('service') ? [
+//                 'id'            => $survey->service->id,
+//                 'name'          => $survey->service->name,
+//                 'thumbnail_url' => $survey->service->thumbnail
+//                     ? asset($survey->service->thumbnail) : null,
+//             ] : null,
+//             'customer'        => $survey->relationLoaded('customer') ? [
+//                 'id'         => $survey->customer->id,
+//                 'name'       => $survey->customer->name,
+//                 'phone'      => $survey->customer->phone,
+//                 'avatar_url' => $survey->customer->avatar
+//                     ? asset($survey->customer->avatar) : null,
+//             ] : null,
+//         ];
+//     }
+
+//     private function formatSurveyDetail(SurveyRequest $survey): array
+//     {
+//         $data = $this->formatSurvey($survey);
+
+//         $data['service']['description'] = $survey->service?->description;
+//         $data['service']['unit']        = $survey->service?->unit;
+
+//         // Detail estimasi per service
+//         $data['survey_services'] = $survey->relationLoaded('surveyServices')
+//             ? $survey->surveyServices->map(fn($ss) => [
+//                 'id'              => $ss->id,
+//                 'service_id'      => $ss->service_id,
+//                 'service_name'    => $ss->service_name,
+//                 'unit'            => $ss->service?->unit,
+//                 'estimated_price' => $ss->estimated_price,
+//                 'qty'             => $ss->qty,
+//                 'subtotal'        => ($ss->estimated_price ?? 0) * $ss->qty,
+//                 'notes'           => $ss->notes,
+//             ]) : [];
+
+//         // Link ke order jika sudah approved
+//         $data['order'] = $survey->relationLoaded('order') && $survey->order ? [
+//             'id'           => $survey->order->id,
+//             'order_number' => $survey->order->order_number,
+//             'status'       => $survey->order->status,
+//         ] : null;
+
+//         return $data;
+//     }
+// }
+
+
+
+// namespace App\Http\Controllers\Api\Tukang;
+
+// use App\Http\Controllers\Controller;
+// use App\Models\Notification;
+// use App\Models\SurveyRequest;
+// use App\Models\SurveyRequestService;
+// use Illuminate\Http\JsonResponse;
+// use Illuminate\Http\Request;
+// use Illuminate\Support\Facades\DB;
+
+// // =========================================================
+// // Controller khusus TUKANG untuk mengelola survey request
+// // Route prefix: /api/tukang/survey-requests
+// // =========================================================
+
+// class JobSurveyController extends Controller
+// {
+//     // ── Daftar survey yang masuk ke tukang ────────────────
+//     // GET /api/tukang/survey-requests
+//     public function index(Request $request): JsonResponse
+//     {
+//         $surveys = SurveyRequest::with([
+//             'customer:id,name,avatar',
+//             'service:id,name,thumbnail',
+//         ])
+//             ->where('tukang_id', $request->user()->id)
+//             ->when($request->filled('status'), fn($q) => $q->where('status', $request->status))
+//             ->latest()
+//             ->paginate($request->get('per_page', 10));
+
+//         return response()->json([
+//             'status' => true,
+//             'meta'   => [
+//                 'total'        => $surveys->total(),
+//                 'current_page' => $surveys->currentPage(),
+//                 'last_page'    => $surveys->lastPage(),
+//             ],
+//             'data' => $surveys->items(),
+//         ]);
+//     }
+
+//     // ── Terima survey ──────────────────────────────────────
+//     // PUT /api/tukang/survey-requests/{survey}/accept
+//     public function accept(Request $request, SurveyRequest $survey): JsonResponse
+//     {
+//         if ($survey->tukang_id !== $request->user()->id) {
+//             return response()->json(['status' => false, 'message' => 'Tidak ditemukan.'], 404);
+//         }
+
+//         if ($survey->status !== 'requested') {
+//             return response()->json([
+//                 'status'  => false,
+//                 'message' => 'Survey tidak dalam status yang bisa diterima.',
+//             ], 422);
+//         }
+
+//         $survey->update(['status' => 'accepted']);
+
+//         // ── Notifikasi ke CUSTOMER ─────────────────────────
+//         Notification::send(
+//             userId: $survey->customer_id,
+//             title: 'Survey Diterima!',
+//             body: "{$request->user()->name} menerima permintaan surveymu. Tunggu jadwal kedatangan.",
+//             type: 'survey',
+//             notifiable: $survey,
+//         );
+
+//     // ← TAMBAHKAN INI
+//     \App\Services\NotificationService::surveyApprovedToCustomer($survey);
+
+
+//         return response()->json([
+//             'status'  => true,
+//             'message' => 'Survey berhasil diterima.',
+//             'data'    => $survey->fresh(),
+//         ]);
+//     }
+
+//     // ── Tolak survey ───────────────────────────────────────
+//     // PUT /api/tukang/survey-requests/{survey}/reject
+//     public function reject(Request $request, SurveyRequest $survey): JsonResponse
+//     {
+//         if ($survey->tukang_id !== $request->user()->id) {
+//             return response()->json(['status' => false, 'message' => 'Tidak ditemukan.'], 404);
+//         }
+
+//         if ($survey->status !== 'requested') {
+//             return response()->json([
+//                 'status'  => false,
+//                 'message' => 'Survey tidak dalam status yang bisa ditolak.',
+//             ], 422);
+//         }
+
+//         $survey->update(['status' => 'rejected']);
+
+//         // ── Notifikasi ke CUSTOMER ─────────────────────────
+//         Notification::send(
+//             userId: $survey->customer_id,
+//             title: 'Survey Ditolak',
+//             body: "Maaf, {$request->user()->name} tidak dapat memenuhi permintaan surveymu saat ini.",
+//             type: 'survey',
+//             notifiable: $survey,
+//         );
+
+//         return response()->json([
+//             'status'  => true,
+//             'message' => 'Survey berhasil ditolak.',
+//             'data'    => $survey->fresh(),
+//         ]);
+//     }
+
+//     // ── Tukang isi estimasi harga ──────────────────────────
+//     // PUT /api/tukang/survey-requests/{survey}/price
+//     // Body:
+//     //   survey_fee      : decimal (biaya survey)
+//     //   estimated_days  : int
+//     //   tukang_notes    : string (optional)
+//     //   services        : array of { service_id, service_name, estimated_price, qty, notes? }
+//     public function price(Request $request, SurveyRequest $survey): JsonResponse
+//     {
+//         if ($survey->tukang_id !== $request->user()->id) {
+//             return response()->json(['status' => false, 'message' => 'Tidak ditemukan.'], 404);
+//         }
+
+//         if ($survey->status !== 'accepted' && $survey->status !== 'on_survey') {
+//             return response()->json([
+//                 'status'  => false,
+//                 'message' => 'Survey belum bisa diisi estimasi.',
+//             ], 422);
+//         }
+
+//         $request->validate([
+//             'survey_fee'          => 'nullable|numeric|min:0',
+//             'estimated_days'      => 'required|integer|min:1',
+//             'tukang_notes'        => 'nullable|string',
+//             'services'            => 'required|array|min:1',
+//             'services.*.service_id'      => 'required|integer|exists:services,id',
+//             'services.*.service_name'    => 'required|string',
+//             'services.*.estimated_price' => 'required|numeric|min:0',
+//             'services.*.qty'             => 'required|integer|min:1',
+//             'services.*.notes'           => 'nullable|string',
+//         ]);
+
+//         DB::beginTransaction();
+//         try {
+//             // Hitung total estimasi
+//             $totalEstimated = collect($request->services)
+//                 ->sum(fn($s) => $s['estimated_price'] * $s['qty']);
+
+//             $survey->update([
+//                 'status'          => 'survey_priced',
+//                 'survey_fee'      => $request->survey_fee ?? 0,
+//                 'estimated_price' => $totalEstimated,
+//                 'estimated_days'  => $request->estimated_days,
+//                 'tukang_notes'    => $request->tukang_notes,
+//             ]);
+
+//             // Hapus detail lama lalu insert baru
+//             $survey->surveyServices()->delete();
+
+//             foreach ($request->services as $svc) {
+//                 SurveyRequestService::create([
+//                     'survey_request_id' => $survey->id,
+//                     'service_id'        => $svc['service_id'],
+//                     'service_name'      => $svc['service_name'],
+//                     'estimated_price'   => $svc['estimated_price'],
+//                     'qty'               => $svc['qty'],
+//                     'notes'             => $svc['notes'] ?? null,
+//                 ]);
+//             }
+
+//             // ── Notifikasi ke CUSTOMER: ada estimasi harga ──
+//             Notification::send(
+//                 userId: $survey->customer_id,
+//                 title: 'Estimasi Harga Tersedia!',
+//                 body: "{$request->user()->name} telah mengisi estimasi harga surveymu sebesar Rp " .
+//                     number_format($totalEstimated, 0, ',', '.') .
+//                     ". Silakan cek dan setujui.",
+//                 type: 'survey',
+//                 notifiable: $survey,
+//             );
+
+//             DB::commit();
+
+//                 // ← TAMBAHKAN INI
+//     \App\Services\NotificationService::surveyPricedToCustomer($survey->fresh(['surveyServices.service']));
+
+
+
+//             return response()->json([
+//                 'status'  => true,
+//                 'message' => 'Estimasi harga berhasil dikirim ke customer.',
+//                 'data'    => $survey->fresh()->load('surveyServices'),
+//             ]);
+//         } catch (\Exception $e) {
+//             DB::rollBack();
+//             return response()->json([
+//                 'status'  => false,
+//                 'message' => 'Gagal menyimpan estimasi: ' . $e->getMessage(),
+//             ], 500);
+//         }
+//     }
+// }
+
+
+
+///code kesekian
+
+// namespace App\Http\Controllers\Api\Tukang;
+
+// use App\Http\Controllers\Controller;
+// use App\Models\SurveyRequest;
+// use App\Models\SurveyRequestService;
+// use App\Models\UserNotification;
+// use Illuminate\Http\JsonResponse;
+// use Illuminate\Http\Request;
+// use Illuminate\Support\Facades\DB;
+
+// /**
+//  * JobSurveyController — Dipakai tukang untuk kelola survey yang masuk.
+//  *
+//  * Routes (prefix: /api/tukang/surveys):
+//  *   GET    /                   → index()
+//  *   GET    /{survey}           → show()
+//  *   PUT    /{survey}/accept    → accept()    ✅ FIX: kirim notif ke customer
+//  *   PUT    /{survey}/reject    → reject()    ✅ FIX: kirim notif ke customer
+//  *   PUT    /{survey}/set-price → setPrice()  ✅ FIX: kirim notif ke customer
+//  */
+// class JobSurveyController extends Controller
+// {
+//     // =========================================================
+//     // INDEX — Daftar survey yang masuk ke tukang
+//     // =========================================================
+
+//     public function index(Request $request): JsonResponse
+//     {
+//         $query = SurveyRequest::with([
+//             'customer:id,name,avatar',
+//             'service:id,name,thumbnail',
+//         ])->where('tukang_id', $request->user()->id);
+
+//         if ($request->filled('status')) {
+//             $query->where('status', $request->status);
+//         }
+
+//         $surveys = $query->latest()->paginate($request->get('per_page', 10));
+
+//         return response()->json([
+//             'status' => true,
+//             'meta'   => [
+//                 'total'        => $surveys->total(),
+//                 'current_page' => $surveys->currentPage(),
+//                 'last_page'    => $surveys->lastPage(),
+//             ],
+//             'data' => collect($surveys->items())->map(fn($s) => $this->formatSurvey($s)),
+//         ]);
+//     }
+
+//     // =========================================================
+//     // SHOW — Detail survey
+//     // =========================================================
+
+//     public function show(Request $request, SurveyRequest $survey): JsonResponse
+//     {
+//         if ($survey->tukang_id !== $request->user()->id) {
+//             return response()->json(['status' => false, 'message' => 'Survey tidak ditemukan.'], 404);
+//         }
+
+//         $survey->load([
+//             'customer:id,name,avatar',
+//             'service:id,name,thumbnail,description',
+//             'surveyServices.service:id,name,unit',
+//         ]);
+
+//         return response()->json([
+//             'status' => true,
+//             'data'   => $this->formatSurveyDetail($survey),
+//         ]);
+//     }
+
+//     // =========================================================
+//     // ACCEPT — Tukang terima survey
+//     // ✅ FIX: Tambah notifikasi ke customer
+//     // =========================================================
+
+//     public function accept(Request $request, SurveyRequest $survey): JsonResponse
+//     {
+//         if ($survey->tukang_id !== $request->user()->id) {
+//             return response()->json(['status' => false, 'message' => 'Survey tidak ditemukan.'], 404);
+//         }
+
+//         if ($survey->status !== 'requested') {
+//             return response()->json([
+//                 'status'  => false,
+//                 'message' => 'Survey tidak bisa diterima (status: ' . $survey->status . ').',
+//             ], 422);
+//         }
+
+//         $survey->update(['status' => 'accepted']);
+
+//         $survey->load(['customer', 'service', 'tukang']);
+
+//         // ✅ FIX: Kirim notifikasi ke CUSTOMER — survey diterima tukang
+//         UserNotification::send(
+//             userId:     $survey->customer_id,
+//             title:      'Survey Diterima! 🎉',
+//             body:       "Tukang {$request->user()->name} telah menerima permintaan surveymu untuk layanan {$survey->service?->name}.",
+//             type:       'survey_approved',       // ← type ini yang dibaca Flutter
+//             notifiable: $survey,
+//             data: [
+//                 'survey_id'    => $survey->id,
+//                 'tukang_name'  => $request->user()->name,
+//                 'service_name' => $survey->service?->name ?? '',
+//                 'address'      => $survey->address,
+//                 'survey_date'  => $survey->survey_date?->toDateTimeString(),
+//                 'survey_fee'   => (string) ($survey->survey_fee ?? '0'),
+//                 'status'       => 'accepted',
+//             ],
+//         );
+
+//         return response()->json([
+//             'status'  => true,
+//             'message' => 'Survey berhasil diterima.',
+//             'data'    => $this->formatSurvey($survey->fresh()),
+//         ]);
+//     }
+
+//     // =========================================================
+//     // REJECT — Tukang tolak survey
+//     // ✅ FIX: Tambah notifikasi ke customer
+//     // =========================================================
+
+//     public function reject(Request $request, SurveyRequest $survey): JsonResponse
+//     {
+//         $request->validate([
+//             'reason' => 'nullable|string|max:500',
+//         ]);
+
+//         if ($survey->tukang_id !== $request->user()->id) {
+//             return response()->json(['status' => false, 'message' => 'Survey tidak ditemukan.'], 404);
+//         }
+
+//         if (! in_array($survey->status, ['requested', 'accepted'])) {
+//             return response()->json([
+//                 'status'  => false,
+//                 'message' => 'Survey tidak bisa ditolak pada status ini.',
+//             ], 422);
+//         }
+
+//         $survey->update([
+//             'status'      => 'rejected',
+//             'tukang_notes' => $request->reason,
+//         ]);
+
+//         $survey->load(['service']);
+
+//         // ✅ FIX: Kirim notifikasi ke CUSTOMER — survey ditolak
+//         UserNotification::send(
+//             userId:     $survey->customer_id,
+//             title:      'Survey Ditolak',
+//             body:       "Maaf, tukang {$request->user()->name} tidak bisa menerima surveymu" .
+//                         ($request->reason ? ". Alasan: {$request->reason}" : '.'),
+//             type:       'survey',
+//             notifiable: $survey,
+//             data: [
+//                 'survey_id'    => $survey->id,
+//                 'tukang_name'  => $request->user()->name,
+//                 'service_name' => $survey->service?->name ?? '',
+//                 'status'       => 'rejected',
+//             ],
+//         );
+
+//         return response()->json([
+//             'status'  => true,
+//             'message' => 'Survey berhasil ditolak.',
+//             'data'    => $this->formatSurvey($survey->fresh()),
+//         ]);
+//     }
+
+//     // =========================================================
+//     // SET PRICE — Tukang isi estimasi harga
+//     // ✅ FIX: Tambah notifikasi ke customer (ini yang paling penting!)
+//     // =========================================================
+
+//     public function setPrice(Request $request, SurveyRequest $survey): JsonResponse
+//     {
+//         $request->validate([
+//             'survey_fee'      => 'nullable|numeric|min:0',
+//             'estimated_days'  => 'nullable|integer|min:1',
+//             'tukang_notes'    => 'nullable|string|max:1000',
+//             'services'        => 'required|array|min:1',
+//             'services.*.service_id'      => 'required|exists:services,id',
+//             'services.*.service_name'    => 'required|string',
+//             'services.*.estimated_price' => 'required|numeric|min:0',
+//             'services.*.qty'             => 'required|integer|min:1',
+//             'services.*.notes'           => 'nullable|string',
+//         ]);
+
+//         if ($survey->tukang_id !== $request->user()->id) {
+//             return response()->json(['status' => false, 'message' => 'Survey tidak ditemukan.'], 404);
+//         }
+
+//         if (! in_array($survey->status, ['accepted', 'on_survey'])) {
+//             return response()->json([
+//                 'status'  => false,
+//                 'message' => 'Survey belum bisa diisi estimasi (status: ' . $survey->status . ').',
+//             ], 422);
+//         }
+
+//         DB::beginTransaction();
+//         try {
+//             // Hitung total estimasi
+//             $totalEstimated = collect($request->services)
+//                 ->sum(fn($s) => ($s['estimated_price'] ?? 0) * ($s['qty'] ?? 1));
+
+//             // Update survey
+//             $survey->update([
+//                 'status'          => 'survey_priced',
+//                 'survey_fee'      => $request->survey_fee,
+//                 'estimated_price' => $totalEstimated,
+//                 'estimated_days'  => $request->estimated_days,
+//                 'tukang_notes'    => $request->tukang_notes,
+//             ]);
+
+//             // Hapus estimasi lama, simpan yang baru
+//             $survey->surveyServices()->delete();
+
+//             $servicesData = [];
+//             foreach ($request->services as $item) {
+//                 $subtotal = ($item['estimated_price'] ?? 0) * ($item['qty'] ?? 1);
+//                 $ss = SurveyRequestService::create([
+//                     'survey_request_id' => $survey->id,
+//                     'service_id'        => $item['service_id'],
+//                     'service_name'      => $item['service_name'],
+//                     'estimated_price'   => $item['estimated_price'],
+//                     'qty'               => $item['qty'],
+//                     'subtotal'          => $subtotal,
+//                     'notes'             => $item['notes'] ?? null,
+//                 ]);
+//                 $servicesData[] = [
+//                     'id'              => $ss->id,
+//                     'service_name'    => $ss->service_name,
+//                     'estimated_price' => $ss->estimated_price,
+//                     'qty'             => $ss->qty,
+//                     'subtotal'        => $subtotal,
+//                     'notes'           => $ss->notes,
+//                 ];
+//             }
+
+//             $survey->load(['customer', 'service', 'surveyServices']);
+
+//             // ✅ FIX UTAMA: Kirim notifikasi ke CUSTOMER — estimasi sudah ada
+//             // Tanpa baris ini, customer tidak pernah tahu tukang sudah isi harga!
+//             UserNotification::send(
+//                 userId:     $survey->customer_id,
+//                 title:      'Estimasi Harga Tersedia 💰',
+//                 body:       "Tukang {$request->user()->name} sudah mengisi estimasi harga untuk surveymu. Silakan cek dan setujui!",
+//                 type:       'survey_priced',      // ← Flutter routing ke SurveyEstimationDetailPage
+//                 notifiable: $survey,
+//                 data: [
+//                     'survey_id'       => $survey->id,
+//                     'tukang_name'     => $request->user()->name,
+//                     'service_name'    => $survey->service?->name ?? '',
+//                     'address'         => $survey->address,
+//                     'survey_date'     => $survey->survey_date?->toDateTimeString(),
+//                     'survey_fee'      => (string) ($survey->survey_fee ?? '0'),
+//                     'estimated_price' => (string) $totalEstimated,
+//                     'estimated_days'  => (string) ($request->estimated_days ?? ''),
+//                     'tukang_notes'    => $request->tukang_notes ?? '',
+//                     'status'          => 'survey_priced',
+//                     'survey_services' => json_encode($servicesData),
+//                 ],
+//             );
+
+//             DB::commit();
+
+//             return response()->json([
+//                 'status'  => true,
+//                 'message' => 'Estimasi harga berhasil diisi. Customer sudah diberitahu.',
+//                 'data'    => $this->formatSurveyDetail($survey->fresh([
+//                     'customer', 'service', 'surveyServices.service',
+//                 ])),
+//             ]);
+//         } catch (\Exception $e) {
+//             DB::rollBack();
+//             return response()->json([
+//                 'status'  => false,
+//                 'message' => 'Gagal menyimpan estimasi.',
+//                 'error'   => $e->getMessage(),
+//             ], 500);
+//         }
+//     }
+
+//     // =========================================================
+//     // PRIVATE HELPERS
+//     // =========================================================
+
+//     private function formatSurvey(SurveyRequest $survey): array
+//     {
+//         return [
+//             'id'              => $survey->id,
+//             'status'          => $survey->status,
+//             'address'         => $survey->address,
+//             'survey_date'     => $survey->survey_date?->toDateTimeString(),
+//             'survey_fee'      => $survey->survey_fee,
+//             'estimated_price' => $survey->estimated_price,
+//             'estimated_days'  => $survey->estimated_days,
+//             'notes'           => $survey->notes,
+//             'tukang_notes'    => $survey->tukang_notes,
+//             'created_at'      => $survey->created_at->toDateTimeString(),
+//             'customer'        => $survey->relationLoaded('customer') ? [
+//                 'id'         => $survey->customer->id,
+//                 'name'       => $survey->customer->name,
+//                 'avatar_url' => $survey->customer->avatar
+//                     ? asset($survey->customer->avatar) : null,
+//             ] : null,
+//             'service' => $survey->relationLoaded('service') ? [
+//                 'id'            => $survey->service->id,
+//                 'name'          => $survey->service->name,
+//                 'thumbnail_url' => $survey->service->thumbnail
+//                     ? asset($survey->service->thumbnail) : null,
+//             ] : null,
+//         ];
+//     }
+
+//     private function formatSurveyDetail(SurveyRequest $survey): array
+//     {
+//         $data = $this->formatSurvey($survey);
+
+//         $data['survey_services'] = $survey->relationLoaded('surveyServices')
+//             ? $survey->surveyServices->map(fn($ss) => [
+//                 'id'              => $ss->id,
+//                 'service_id'      => $ss->service_id,
+//                 'service_name'    => $ss->service_name,
+//                 'unit'            => $ss->service?->unit,
+//                 'estimated_price' => $ss->estimated_price,
+//                 'qty'             => $ss->qty,
+//                 'subtotal'        => ($ss->estimated_price ?? 0) * $ss->qty,
+//                 'notes'           => $ss->notes,
+//             ])->toArray()
+//             : [];
+
+//         return $data;
+//     }
+// }
+
+
+
+
+namespace App\Http\Controllers\Api\Tukang;
+
+use App\Http\Controllers\Controller;
+use App\Models\SurveyRequest;
+use App\Models\SurveyRequestService;
+use App\Models\UserNotification;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+
+class JobSurveyController extends Controller
+{
+    // GET /api/tukang/surveys
+    public function index(Request $request): JsonResponse
+    {
+        $query = SurveyRequest::with([
+            'customer:id,name,avatar',
+            'service:id,name,thumbnail',
+        ])->where('tukang_id', $request->user()->id);
+
+        if ($request->filled('status')) {
+            $query->where('status', $request->status);
+        }
+
+        $surveys = $query->latest()->paginate($request->get('per_page', 10));
+
+        return response()->json([
+            'status' => true,
+            'meta'   => [
+                'total'        => $surveys->total(),
+                'current_page' => $surveys->currentPage(),
+                'last_page'    => $surveys->lastPage(),
+            ],
+            'data' => collect($surveys->items())->map(fn($s) => $this->formatSurvey($s)),
+        ]);
+    }
+
+    // GET /api/tukang/surveys/{survey}
+    public function show(Request $request, SurveyRequest $survey): JsonResponse
+    {
+        if ($survey->tukang_id !== $request->user()->id) {
+            return response()->json(['status' => false, 'message' => 'Survey tidak ditemukan.'], 404);
+        }
+
+        $survey->load([
+            'customer:id,name,avatar',
+            'service:id,name,thumbnail,description',
+            'surveyServices.service:id,name,unit',
+        ]);
+
+        return response()->json([
+            'status' => true,
+            'data'   => $this->formatSurveyDetail($survey),
+        ]);
+    }
+
+    // =========================================================
+    // ACCEPT — Tukang terima survey
+    // ✅ FIX: Load relasi dulu, kirim data lengkap ke notif
+    // =========================================================
+    public function accept(Request $request, SurveyRequest $survey): JsonResponse
+    {
+        if ($survey->tukang_id !== $request->user()->id) {
+            return response()->json(['status' => false, 'message' => 'Survey tidak ditemukan.'], 404);
+        }
+
+        if ($survey->status !== 'requested') {
+            return response()->json([
+                'status'  => false,
+                'message' => 'Survey tidak bisa diterima (status: ' . $survey->status . ').',
+            ], 422);
+        }
+
+        $survey->update(['status' => 'accepted']);
+
+        // ✅ WAJIB: load relasi sebelum kirim notif
+        $survey->load(['service', 'tukang']);
+
+        UserNotification::send(
+            userId: $survey->customer_id,
+            title: 'Survey Diterima! 🎉',
+            body: "Tukang {$request->user()->name} telah menerima permintaan surveymu untuk layanan {$survey->service?->name}.",
+            type: 'survey_approved',
+            notifiable: $survey,
+            data: [
+                'survey_id'    => $survey->id,
+                'tukang_name'  => $request->user()->name,
+                'tukang_photo' => $request->user()->tukangProfile?->photo
+                    ? asset($request->user()->tukangProfile->photo) : null,
+                'rating'       => $request->user()->tukangProfile?->rating,
+                'service_name' => $survey->service?->name ?? '',
+                'address'      => $survey->address,
+                'survey_date'  => $survey->survey_date?->toDateTimeString(),
+                'survey_fee'   => (float) ($survey->survey_fee ?? 0),
+                'status'       => 'accepted',
+            ],
+        );
+
+        return response()->json([
+            'status'  => true,
+            'message' => 'Survey berhasil diterima.',
+            'data'    => $this->formatSurvey($survey->fresh()),
+        ]);
+    }
+
+    // =========================================================
+    // REJECT — Tukang tolak survey
+    // =========================================================
+    public function reject(Request $request, SurveyRequest $survey): JsonResponse
+    {
+        $request->validate([
+            'reason' => 'nullable|string|max:500',
+        ]);
+
+        if ($survey->tukang_id !== $request->user()->id) {
+            return response()->json(['status' => false, 'message' => 'Survey tidak ditemukan.'], 404);
+        }
+
+        if (!in_array($survey->status, ['requested', 'accepted'])) {
+            return response()->json([
+                'status'  => false,
+                'message' => 'Survey tidak bisa ditolak pada status ini.',
+            ], 422);
+        }
+
+        $survey->update([
+            'status'       => 'rejected',
+            'tukang_notes' => $request->reason,
+        ]);
+
+        $survey->load(['service']);
+
+        UserNotification::send(
+            userId: $survey->customer_id,
+            title: 'Survey Ditolak',
+            body: "Maaf, tukang {$request->user()->name} tidak bisa menerima surveymu" .
+                ($request->reason ? ". Alasan: {$request->reason}" : '.'),
+            type: 'survey',
+            notifiable: $survey,
+            data: [
+                'survey_id'    => $survey->id,
+                'tukang_name'  => $request->user()->name,
+                'service_name' => $survey->service?->name ?? '',
+                'status'       => 'rejected',
+            ],
+        );
+
+        return response()->json([
+            'status'  => true,
+            'message' => 'Survey berhasil ditolak.',
+            'data'    => $this->formatSurvey($survey->fresh()),
+        ]);
+    }
+
+    // =========================================================
+    // SET PRICE — Tukang isi estimasi harga
+    // ✅ FIX: survey_services kirim sebagai array (bukan json string)
+    // =========================================================
+    //     public function setPrice(Request $request, SurveyRequest $survey): JsonResponse
+    //     {
+    //         $request->validate([
+    //             'survey_fee'                         => 'nullable|numeric|min:0',
+    //             'estimated_days'                     => 'nullable|integer|min:1',
+    //             'tukang_notes'                       => 'nullable|string|max:1000',
+    //             'services'                           => 'required|array|min:1',
+    //             'services.*.service_id'              => 'required|exists:services,id',
+    //             'services.*.service_name'            => 'required|string',
+    //             'services.*.estimated_price'         => 'required|numeric|min:0',
+    //             'services.*.qty'                     => 'required|integer|min:1',
+    //             'services.*.notes'                   => 'nullable|string',
+    //         ]);
+
+    //         if ($survey->tukang_id !== $request->user()->id) {
+    //             return response()->json(['status' => false, 'message' => 'Survey tidak ditemukan.'], 404);
+    //         }
+
+    //         if (!in_array($survey->status, ['accepted', 'on_survey'])) {
+    //             return response()->json([
+    //                 'status'  => false,
+    //                 'message' => 'Survey belum bisa diisi estimasi (status: ' . $survey->status . ').',
+    //             ], 422);
+    //         }
+
+    //         DB::beginTransaction();
+    //         try {
+    //             $totalEstimated = collect($request->services)
+    //                 ->sum(fn($s) => ($s['estimated_price'] ?? 0) * ($s['qty'] ?? 1));
+
+    //             $survey->update([
+    //                 'status'          => 'survey_priced',
+    //                 'survey_fee'      => $request->survey_fee,
+    //                 'estimated_price' => $totalEstimated,
+    //                 'estimated_days'  => $request->estimated_days,
+    //                 'tukang_notes'    => $request->tukang_notes,
+    //             ]);
+
+    //             $survey->surveyServices()->delete();
+
+    //             $servicesData = [];
+    //             foreach ($request->services as $item) {
+    //                 $subtotal = ($item['estimated_price'] ?? 0) * ($item['qty'] ?? 1);
+    //                 $ss = SurveyRequestService::create([
+    //                     'survey_request_id' => $survey->id,
+    //                     'service_id'        => $item['service_id'],
+    //                     'service_name'      => $item['service_name'],
+    //                     'estimated_price'   => $item['estimated_price'],
+    //                     'qty'               => $item['qty'],
+    //                     'subtotal'          => $subtotal,
+    //                     'notes'             => $item['notes'] ?? null,
+    //                 ]);
+
+    //                 // ✅ FIX: kirim sebagai array of objects, BUKAN json_encode
+    //                 $servicesData[] = [
+    //                     'id'              => $ss->id,
+    //                     'service_name'    => $ss->service_name,
+    //                     'unit'            => null,
+    //                     'estimated_price' => (float) $ss->estimated_price,
+    //                     'qty'             => (int) $ss->qty,
+    //                     'subtotal'        => (float) $subtotal,
+    //                     'notes'           => $ss->notes,
+    //                 ];
+    //             }
+
+    //             $survey->load(['customer', 'service', 'surveyServices']);
+
+    //             UserNotification::send(
+    //                 userId:     $survey->customer_id,
+    //                 title:      'Estimasi Harga Tersedia 💰',
+    //                 body:       "Tukang {$request->user()->name} sudah mengisi estimasi harga untuk surveymu. Silakan cek dan setujui!",
+    //                 type:       'survey_priced',
+    //                 notifiable: $survey,
+    //                 data: [
+    //                     'survey_id'       => $survey->id,
+    //                     'tukang_name'     => $request->user()->name,
+    //                     'tukang_photo'    => $request->user()->tukangProfile?->photo
+    //                         ? asset($request->user()->tukangProfile->photo) : null,
+    //                     'rating'          => $request->user()->tukangProfile?->rating,
+    //                     'service_name'    => $survey->service?->name ?? '',
+    //                     'address'         => $survey->address,
+    //                     'survey_date'     => $survey->survey_date?->toDateTimeString(),
+    //                     'survey_fee'      => (float) ($survey->survey_fee ?? 0),
+    //                     'estimated_price' => (float) $totalEstimated,
+    //                     'estimated_days'  => $request->estimated_days
+    //                         ? (int) $request->estimated_days : null,
+    //                     'tukang_notes'    => $request->tukang_notes ?? '',
+    //                     'status'          => 'survey_priced',
+    //                     // ✅ KRITIS: array langsung, bukan json_encode string
+    //                     'survey_services' => $servicesData,
+    //                 ],
+    //             );
+
+    //             DB::commit();
+
+    //             return response()->json([
+    //                 'status'  => true,
+    //                 'message' => 'Estimasi harga berhasil diisi. Customer sudah diberitahu.',
+    //                 'data'    => $this->formatSurveyDetail($survey->fresh([
+    //                     'customer', 'service', 'surveyServices.service',
+    //                 ])),
+    //             ]);
+    //         } catch (\Exception $e) {
+    //             DB::rollBack();
+    //             return response()->json([
+    //                 'status'  => false,
+    //                 'message' => 'Gagal menyimpan estimasi.',
+    //                 'error'   => $e->getMessage(),
+    //             ], 500);
+    //         }
+    //     }
+
+    //     // =========================================================
+    //     // PRIVATE HELPERS
+    //     // =========================================================
+    //     private function formatSurvey(SurveyRequest $survey): array
+    //     {
+    //         return [
+    //             'id'              => $survey->id,
+    //             'status'          => $survey->status,
+    //             'address'         => $survey->address,
+    //             'survey_date'     => $survey->survey_date?->toDateTimeString(),
+    //             'survey_fee'      => $survey->survey_fee,
+    //             'estimated_price' => $survey->estimated_price,
+    //             'estimated_days'  => $survey->estimated_days,
+    //             'notes'           => $survey->notes,
+    //             'tukang_notes'    => $survey->tukang_notes,
+    //             'created_at'      => $survey->created_at->toDateTimeString(),
+    //             'customer'        => $survey->relationLoaded('customer') ? [
+    //                 'id'         => $survey->customer->id,
+    //                 'name'       => $survey->customer->name,
+    //                 'avatar_url' => $survey->customer->avatar
+    //                     ? asset($survey->customer->avatar) : null,
+    //             ] : null,
+    //             'service' => $survey->relationLoaded('service') ? [
+    //                 'id'            => $survey->service->id,
+    //                 'name'          => $survey->service->name,
+    //                 'thumbnail_url' => $survey->service->thumbnail
+    //                     ? asset($survey->service->thumbnail) : null,
+    //             ] : null,
+    //         ];
+    //     }
+
+    //     private function formatSurveyDetail(SurveyRequest $survey): array
+    //     {
+    //         $data = $this->formatSurvey($survey);
+
+    //         $data['survey_services'] = $survey->relationLoaded('surveyServices')
+    //             ? $survey->surveyServices->map(fn($ss) => [
+    //                 'id'              => $ss->id,
+    //                 'service_id'      => $ss->service_id,
+    //                 'service_name'    => $ss->service_name,
+    //                 'unit'            => $ss->service?->unit,
+    //                 'estimated_price' => (float) $ss->estimated_price,
+    //                 'qty'             => (int) $ss->qty,
+    //                 'subtotal'        => (float) (($ss->estimated_price ?? 0) * $ss->qty),
+    //                 'notes'           => $ss->notes,
+    //             ])->toArray()
+    //             : [];
+
+    //         return $data;
+    //     }
+    // }
+
+
+
+    public function setPrice(Request $request, SurveyRequest $survey): JsonResponse
+    {
+        $request->validate([
+            // Laporan hasil survey (field baru)
+            'damage_description'                 => 'nullable|string|max:2000',
+            'materials_needed'                   => 'nullable|string|max:2000',
+
+            // Field lama
+            'survey_fee'                         => 'nullable|numeric|min:0',
+            'estimated_days'                     => 'nullable|integer|min:1',
+            'tukang_notes'                       => 'nullable|string|max:1000',
+
+            // Rincian pekerjaan (minimal 1 item)
+            'services'                           => 'required|array|min:1',
+            'services.*.service_id'              => 'required|exists:services,id',
+            'services.*.service_name'            => 'required|string',
+            'services.*.estimated_price'         => 'required|numeric|min:0',
+            'services.*.qty'                     => 'required|integer|min:1',
+            'services.*.notes'                   => 'nullable|string',
+        ]);
+
+        if ($survey->tukang_id !== $request->user()->id) {
+            return response()->json(['status' => false, 'message' => 'Survey tidak ditemukan.'], 404);
+        }
+
+        if (!in_array($survey->status, ['accepted', 'on_survey'])) {
+            return response()->json([
+                'status'  => false,
+                'message' => 'Survey belum bisa diisi estimasi (status: ' . $survey->status . ').',
+            ], 422);
+        }
+
+        DB::beginTransaction();
+        try {
+            $totalEstimated = collect($request->services)
+                ->sum(fn($s) => ($s['estimated_price'] ?? 0) * ($s['qty'] ?? 1));
+
+            // Update survey dengan field baru + field lama
+            $survey->update([
+                'status'              => 'survey_priced',
+                'damage_description'  => $request->damage_description,
+                'materials_needed'    => $request->materials_needed,
+                'survey_fee'          => $request->survey_fee,
+                'estimated_price'     => $totalEstimated,
+                'estimated_days'      => $request->estimated_days,
+                'tukang_notes'        => $request->tukang_notes,
+            ]);
+
+            // Hapus rincian lama, simpan yang baru
+            $survey->surveyServices()->delete();
+
+            $servicesData = [];
+            foreach ($request->services as $item) {
+                $subtotal = ($item['estimated_price'] ?? 0) * ($item['qty'] ?? 1);
+                $ss = SurveyRequestService::create([
+                    'survey_request_id' => $survey->id,
+                    'service_id'        => $item['service_id'],
+                    'service_name'      => $item['service_name'],
+                    'estimated_price'   => $item['estimated_price'],
+                    'qty'               => $item['qty'],
+                    'subtotal'          => $subtotal,
+                    'notes'             => $item['notes'] ?? null,
+                ]);
+
+                $servicesData[] = [
+                    'id'              => $ss->id,
+                    'service_name'    => $ss->service_name,
+                    'unit'            => null,
+                    'estimated_price' => (float) $ss->estimated_price,
+                    'qty'             => (int) $ss->qty,
+                    'subtotal'        => (float) $subtotal,
+                    'notes'           => $ss->notes,
+                ];
+            }
+
+            $survey->load(['customer', 'service', 'surveyServices']);
+
+            // Kirim notifikasi ke customer dengan data laporan lengkap
+            UserNotification::send(
+                userId: $survey->customer_id,
+                title: 'Laporan Survey Tersedia 📋',
+                body: "Tukang {$request->user()->name} telah menyelesaikan survey dan mengirim laporan + estimasi harga. Silakan cek dan putuskan!",
+                type: 'survey_priced',
+                notifiable: $survey,
+                data: [
+                    // Identitas
+                    'survey_id'          => $survey->id,
+                    'tukang_name'        => $request->user()->name,
+                    'tukang_photo'       => $request->user()->tukangProfile?->photo
+                        ? asset($request->user()->tukangProfile->photo) : null,
+                    'rating'             => $request->user()->tukangProfile?->rating,
+                    'service_name'       => $survey->service?->name ?? '',
+                    'address'            => $survey->address,
+                    'survey_date'        => $survey->survey_date?->toDateTimeString(),
+
+                    // Laporan hasil survey (field baru)
+                    'damage_description' => $request->damage_description ?? '',
+                    'materials_needed'   => $request->materials_needed ?? '',
+
+                    // Estimasi
+                    'survey_fee'         => (float) ($survey->survey_fee ?? 0),
+                    'estimated_price'    => (float) $totalEstimated,
+                    'estimated_days'     => $request->estimated_days
+                        ? (int) $request->estimated_days : null,
+                    'tukang_notes'       => $request->tukang_notes ?? '',
+                    'status'             => 'survey_priced',
+
+                    // Rincian pekerjaan (array, bukan json string)
+                    'survey_services'    => $servicesData,
+                ],
+            );
+
+            DB::commit();
+
+            return response()->json([
+                'status'  => true,
+                'message' => 'Laporan survey dan estimasi harga berhasil dikirim ke customer.',
+                'data'    => $this->formatSurveyDetail($survey->fresh([
+                    'customer',
+                    'service',
+                    'surveyServices.service',
+                ])),
+            ]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json([
+                'status'  => false,
+                'message' => 'Gagal menyimpan laporan survey.',
+                'error'   => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    // =========================================================
+    // PRIVATE HELPERS
+    // =========================================================
+    private function formatSurvey(SurveyRequest $survey): array
+    {
+        return [
+            'id'                  => $survey->id,
+            'status'              => $survey->status,
+            'address'             => $survey->address,
+            'survey_date'         => $survey->survey_date?->toDateTimeString(),
+            'survey_fee'          => $survey->survey_fee,
+            'estimated_price'     => $survey->estimated_price,
+            'estimated_days'      => $survey->estimated_days,
+            'notes'               => $survey->notes,
+            'tukang_notes'        => $survey->tukang_notes,
+            // Field baru
+            'damage_description'  => $survey->damage_description,
+            'materials_needed'    => $survey->materials_needed,
+            'created_at'          => $survey->created_at->toDateTimeString(),
+            'customer'        => $survey->relationLoaded('customer') ? [
+                'id'         => $survey->customer->id,
+                'name'       => $survey->customer->name,
+                'avatar_url' => $survey->customer->avatar
+                    ? asset($survey->customer->avatar) : null,
+            ] : null,
+            'service' => $survey->relationLoaded('service') ? [
+                'id'            => $survey->service->id,
+                'name'          => $survey->service->name,
+                'thumbnail_url' => $survey->service->thumbnail
+                    ? asset($survey->service->thumbnail) : null,
+            ] : null,
+        ];
+    }
+
+    private function formatSurveyDetail(SurveyRequest $survey): array
+    {
+        $data = $this->formatSurvey($survey);
+
+        $data['survey_services'] = $survey->relationLoaded('surveyServices')
+            ? $survey->surveyServices->map(fn($ss) => [
+                'id'              => $ss->id,
+                'service_id'      => $ss->service_id,
+                'service_name'    => $ss->service_name,
+                'unit'            => $ss->service?->unit,
+                'estimated_price' => (float) $ss->estimated_price,
+                'qty'             => (int) $ss->qty,
+                'subtotal'        => (float) (($ss->estimated_price ?? 0) * $ss->qty),
+                'notes'           => $ss->notes,
+            ])->toArray()
+            : [];
+
+        return $data;
+    }
+
+
+
+    public function inputEstimation(Request $request, int $id): JsonResponse
+{
+    $validator = Validator::make($request->all(), [
+        'material_cost'      => 'required|numeric|min:0',
+        'service_cost'       => 'required|numeric|min:0',
+        'duration_days'      => 'required|integer|min:1',
+        'notes'              => 'nullable|string|max:1000',
+        'damage_description' => 'nullable|string|max:2000',
+    ]);
+
+    if ($validator->fails()) {
+        return response()->json([
+            'status'  => false,
+            'message' => 'Validasi gagal',
+            'errors'  => $validator->errors(),
+        ], 422);
+    }
+
+    // Ambil survey milik tukang yang login
+    $survey = SurveyRequest::where('id', $id)
+        ->where('tukang_id', auth()->id())
+        ->first();
+
+    if (!$survey) {
+        return response()->json([
+            'status'  => false,
+            'message' => 'Survey tidak ditemukan atau bukan milik Anda',
+        ], 404);
+    }
+
+    // Hanya bisa input estimasi jika status = 'surveyed'
+    if ($survey->status !== 'surveyed') {
+        return response()->json([
+            'status'  => false,
+            'message' => "Status survey saat ini '{$survey->status}'. Estimasi hanya bisa diinput saat status 'surveyed'.",
+        ], 422);
+    }
+
+    DB::beginTransaction();
+    try {
+        $totalCost = (float) $request->material_cost + (float) $request->service_cost;
+
+        $survey->update([
+            'material_cost'      => $request->material_cost,
+            'service_cost'       => $request->service_cost,
+            'estimated_price'    => $totalCost,
+            'estimated_days'     => $request->duration_days,
+            'tukang_notes'       => $request->notes,
+            'damage_description' => $request->damage_description,
+            'status'             => 'estimation_sent',
+        ]);
+
+        // ── Kirim notifikasi ke customer ────────────────────
+        // Sesuaikan dengan cara notif yang sudah kamu pakai.
+        // Pilihan 1: pakai NotificationHelper yang sudah ada
+        // NotificationHelper::send(
+        //     userId:  $survey->user_id,
+        //     type:    'estimation_sent',
+        //     title:   'Estimasi Pekerjaan Tersedia',
+        //     body:    'Tukang telah mengirimkan estimasi biaya. Silakan cek dan beri persetujuan.',
+        //     data:    ['survey_id' => $survey->id, 'estimated_price' => $totalCost],
+        // );
+
+        // Pilihan 2: pakai UserNotification model langsung (sesuai struktur model kamu)
+        \App\Models\UserNotification::create([
+            'user_id'    => $survey->user_id,
+            'type'       => 'estimation_sent',
+            'title'      => 'Estimasi Pekerjaan Tersedia',
+            'body'       => 'Tukang telah mengirimkan estimasi biaya untuk survey Anda. Silakan cek dan beri persetujuan.',
+            'data'       => json_encode([
+                'survey_id'       => $survey->id,
+                'estimated_price' => $totalCost,
+                'estimated_days'  => (int) $request->duration_days,
+            ]),
+            'is_read'    => false,
+        ]);
+
+        DB::commit();
+
+        return response()->json([
+            'status'  => true,
+            'message' => 'Estimasi berhasil dikirim ke customer',
+            'data'    => [
+                'survey_id'          => $survey->id,
+                'material_cost'      => (float) $survey->material_cost,
+                'service_cost'       => (float) $survey->service_cost,
+                'estimated_price'    => $totalCost,
+                'estimated_days'     => $survey->estimated_days,
+                'tukang_notes'       => $survey->tukang_notes,
+                'damage_description' => $survey->damage_description,
+                'status'             => $survey->status,
+            ],
+        ]);
+
+    } catch (\Exception $e) {
+        DB::rollBack();
+        return response()->json([
+            'status'  => false,
+            'message' => 'Terjadi kesalahan: ' . $e->getMessage(),
+        ], 500);
+    }
+}
+
+// ─────────────────────────────────────────────────────────────
+// GET /api/tukang/survey/{id}/estimation
+// Preview estimasi yang sudah diinput tukang
+// ─────────────────────────────────────────────────────────────
+public function getEstimation(int $id): JsonResponse
+{
+    $survey = SurveyRequest::where('id', $id)
+        ->where('tukang_id', auth()->id())
+        ->first();
+
+    if (!$survey) {
+        return response()->json([
+            'status'  => false,
+            'message' => 'Survey tidak ditemukan',
+        ], 404);
+    }
+
+    return response()->json([
+        'status' => true,
+        'data'   => [
+            'survey_id'          => $survey->id,
+            'address'            => $survey->address,
+            'material_cost'      => (float) ($survey->material_cost ?? 0),
+            'service_cost'       => (float) ($survey->service_cost ?? 0),
+            'estimated_price'    => (float) ($survey->estimated_price ?? 0),
+            'estimated_days'     => $survey->estimated_days,
+            'tukang_notes'       => $survey->tukang_notes,
+            'damage_description' => $survey->damage_description,
+            'status'             => $survey->status,
+        ],
+    ]);
+}
+
+// ─────────────────────────────────────────────────────────────
+// USE STATEMENTS yang perlu ditambahkan di atas class
+// (jika belum ada di JobSurveyController)
+// ─────────────────────────────────────────────────────────────
+// use Illuminate\Http\JsonResponse;
+// use Illuminate\Http\Request;
+// use Illuminate\Support\Facades\DB;
+// use Illuminate\Support\Facades\Validator;
+// use App\Models\SurveyRequest;
+// use App\Models\UserNotification;
+
+}
+
+
+===== PartnerDashboardController =====
+<?php
+
+namespace App\Http\Controllers\Api\Tukang;
+
+use App\Http\Controllers\Controller;
+use Illuminate\Http\Request;
+use App\Models\Order;
+use App\Models\SurveyRequest;
+use App\Models\PartnerEarning;
+use App\Models\Withdrawal;
+use Illuminate\Http\JsonResponse;
+
+class PartnerDashboardController extends Controller
+{
+
+    public function index(Request $request): JsonResponse
+    {
+        $partner = $request->user();
+        $partnerId = $partner->id;
+
+        // ── Statistik Order ──────────────────────────────────────────────
+        $orderStats = Order::where('tukang_id', $partnerId)
+            ->selectRaw("
+                COUNT(*) as total,
+                SUM(CASE WHEN status = 'pending'    THEN 1 ELSE 0 END) as pending,
+                SUM(CASE WHEN status = 'in_progress' THEN 1 ELSE 0 END) as in_progress,
+                SUM(CASE WHEN status = 'completed'  THEN 1 ELSE 0 END) as completed,
+                SUM(CASE WHEN status = 'cancelled'  THEN 1 ELSE 0 END) as cancelled
+            ")
+            ->first();
+
+        // ── Statistik Survey ─────────────────────────────────────────────
+        $surveyStats = SurveyRequest::where('tukang_id', $partnerId)
+            ->selectRaw("
+                COUNT(*) as total,
+                SUM(CASE WHEN status = 'pending'   THEN 1 ELSE 0 END) as pending,
+                SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed
+            ")
+            ->first();
+
+        // ── Statistik Earning ────────────────────────────────────────────
+        $earningStats = PartnerEarning::where('tukang_id', $partnerId)
+            ->selectRaw("
+                COALESCE(SUM(amount), 0)                                              as total_earned,
+                COALESCE(SUM(CASE WHEN status = 'pending' THEN amount ELSE 0 END), 0) as pending_balance,
+                COALESCE(SUM(CASE WHEN status = 'settled' THEN amount ELSE 0 END), 0) as settled_balance
+            ")
+            ->first();
+
+        // ── Total Withdrawal yang sudah approved ─────────────────────────
+        $totalWithdrawn = Withdrawal::where('tukang_id', $partnerId)
+            ->where('status', 'approved')
+            ->sum('amount');
+
+        // Saldo yang bisa ditarik = settled - sudah withdrawn
+        $availableBalance = max(0, $earningStats->settled_balance - $totalWithdrawn);
+
+        // ── Order terbaru (5 terakhir) ───────────────────────────────────
+        // $recentOrders = Order::where('tukang_id', $partnerId)
+        //     ->with(['customer:id,name,avatar', 'service:id,name'])
+        //     ->latest()
+        //     ->limit(5)
+        //     ->get()
+        //     ->map(fn($o) => [
+        //         'id'           => $o->id,
+        //         'status'       => $o->status,
+        //         'total_price'  => $o->total_price,
+        //         'scheduled_at' => $o->scheduled_at,
+        //         'created_at'   => $o->created_at->toDateTimeString(),
+        //         'customer'     => [
+        //             'name'       => $o->customer?->name,
+        //             'avatar_url' => $o->customer?->avatar ? asset($o->customer->avatar) : null,
+        //         ],
+        //         'service_name' => $o->service?->name,
+        //     ]);
+        $recentOrders = Order::where('tukang_id', $partnerId)
+            ->with(['customer:id,name,avatar', 'details:id,order_id,service_name'])
+            ->latest()
+            ->limit(5)
+            ->get()
+            ->map(fn($o) => [
+                'id'           => $o->id,
+                'status'       => $o->status,
+                'total_price'  => $o->total_price,
+                'scheduled_at' => $o->scheduled_at,
+                'created_at'   => $o->created_at->toDateTimeString(),
+                'customer'     => [
+                    'name'       => $o->customer?->name,
+                    'avatar_url' => $o->customer?->avatar ? asset($o->customer->avatar) : null,
+                ],
+                'service_name' => $o->details->first()?->service_name,
+            ]);
+
+        // ── Survey yang menunggu aksi ────────────────────────────────────
+        $pendingSurveys = SurveyRequest::where('tukang_id', $partnerId)
+            ->whereIn('status', ['assigned', 'accepted'])
+            ->with(['customer:id,name,avatar'])
+            ->latest()
+            ->limit(5)
+            ->get()
+            ->map(fn($s) => [
+                'id'         => $s->id,
+                'status'     => $s->status,
+                'address'    => $s->address,
+                'created_at' => $s->created_at->toDateTimeString(),
+                'customer'   => [
+                    'name'       => $s->customer?->name,
+                    'avatar_url' => $s->customer?->avatar ? asset($s->customer->avatar) : null,
+                ],
+            ]);
+
+        // ── Profile & Status Online ──────────────────────────────────────
+        $partner->load(['tukangProfile', 'tukangLocation']);
+        $profile  = $partner->tukangProfile;
+        $location = $partner->tukangLocation;
+
+        return response()->json([
+            'status' => true,
+            'data'   => [
+
+                // Info identitas
+                'partner' => [
+                    'id'          => $partner->id,
+                    'name'        => $partner->name,
+                    'avatar_url'  => $partner->avatar ? asset($partner->avatar) : null,
+                    'is_verified' => (bool) ($profile?->is_verified ?? false),
+                    'is_online'   => (bool) ($location?->is_online ?? false),
+                    'rating'      => $profile?->rating ?? 0,
+                    'total_reviews' => $profile?->total_reviews ?? 0,
+                ],
+
+                // Statistik order
+                'order_stats' => [
+                    'total'       => (int) $orderStats->total,
+                    'pending'     => (int) $orderStats->pending,
+                    'in_progress' => (int) $orderStats->in_progress,
+                    'completed'   => (int) $orderStats->completed,
+                    'cancelled'   => (int) $orderStats->cancelled,
+                ],
+
+                // Statistik survey
+                'survey_stats' => [
+                    'total'     => (int) $surveyStats->total,
+                    'pending'   => (int) $surveyStats->pending,
+                    'completed' => (int) $surveyStats->completed,
+                ],
+
+                // Finansial
+                'earning_stats' => [
+                    'total_earned'     => (float) $earningStats->total_earned,
+                    'pending_balance'  => (float) $earningStats->pending_balance,
+                    'settled_balance'  => (float) $earningStats->settled_balance,
+                    'total_withdrawn'  => (float) $totalWithdrawn,
+                    'available_balance' => (float) $availableBalance,
+                ],
+
+                // Data terbaru
+                'recent_orders'   => $recentOrders,
+                'pending_surveys' => $pendingSurveys,
+            ],
+        ]);
+    }
+}
+
+
+===== TukangLocationController =====
+<?php
+
+namespace App\Http\Controllers\Api\Tukang;
+
+use App\Http\Controllers\Controller;
+use App\Models\TukangLocation;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+
+class TukangLocationController extends Controller
+{
+    // =========================================================
+    // UPDATE — Update koordinat GPS tukang
+    // PUT /api/tukang/location
+    // Body:
+    //   latitude  : numeric (required)
+    //   longitude : numeric (required)
+    // =========================================================
+
+    public function update(Request $request): JsonResponse
+    {
+        $request->validate([
+            'latitude'  => 'required|numeric|between:-90,90',
+            'longitude' => 'required|numeric|between:-180,180',
+        ]);
+
+        $location = TukangLocation::updateOrCreate(
+            ['tukang_id' => $request->user()->id],
+            [
+                'latitude'    => $request->latitude,
+                'longitude'   => $request->longitude,
+                'last_seen_at' => now(),
+            ]
+        );
+
+        return response()->json([
+            'status'  => true,
+            'message' => 'Lokasi berhasil diupdate.',
+            'data'    => [
+                'latitude'    => $location->latitude,
+                'longitude'   => $location->longitude,
+                'is_online'   => $location->is_online,
+                'last_seen_at' => $location->last_seen_at?->toDateTimeString(),
+            ],
+        ]);
+    }
+
+
+    // =========================================================
+    // TOGGLE — Toggle status online/offline
+    // PUT /api/tukang/location/toggle
+    // Body:
+    //   is_online : boolean (required)
+    // =========================================================
+
+    public function toggle(Request $request): JsonResponse
+    {
+        $request->validate([
+            'is_online' => 'required|boolean',
+        ]);
+
+        $location = TukangLocation::updateOrCreate(
+            ['tukang_id' => $request->user()->id],
+            [
+                'is_online'   => $request->is_online,
+                'last_seen_at' => now(),
+            ]
+        );
+
+        // Sync ke tukang_profiles juga
+        $request->user()->tukangProfile()->update([
+            'is_available' => $request->is_online,
+        ]);
+
+        $status = $request->is_online ? 'Online' : 'Offline';
+
+        return response()->json([
+            'status'  => true,
+            'message' => "Status kamu sekarang {$status}.",
+            'data'    => [
+                'is_online'    => $location->is_online,
+                'is_available' => $request->is_online,
+                'last_seen_at' => $location->last_seen_at?->toDateTimeString(),
+            ],
+        ]);
+    }
+}
+
+
+===== TukangProfileController =====
+<?php
+
+namespace App\Http\Controllers\Api\Tukang;
+
+use App\Http\Controllers\Controller;
+use App\Models\Service;
+use App\Traits\ImageUploadTrait;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+
+class TukangProfileController extends Controller
+{
+    use ImageUploadTrait;
+
+    // =========================================================
+    // SHOW — Lihat profil tukang sendiri
+    // GET /api/tukang/profile
+    // =========================================================
+
+    public function show(Request $request): JsonResponse
+    {
+        $user = $request->user();
+        $user->load([
+            'tukangProfile',
+            'tukangLocation',
+            'tukangServices.category',
+        ]);
+
+        $profile  = $user->tukangProfile;
+        $location = $user->tukangLocation;
+
+        return response()->json([
+            'status' => true,
+            'data'   => [
+                'id'          => $user->id,
+                'name'        => $user->name,
+                'email'       => $user->email,
+                'phone'       => $user->phone,
+                'avatar_url'  => $user->avatar ? asset($user->avatar) : null,
+                'profile'     => $profile ? [
+                    'address'       => $profile->address,
+                    'city'          => $profile->city,
+                    'province'      => $profile->province,
+                    'bio'           => $profile->bio,
+                    'photo_url'     => $profile->photo       ? asset($profile->photo)          : null,
+                    'id_card_url'   => $profile->id_card_photo ? asset($profile->id_card_photo) : null,
+                    'rating'        => $profile->rating,
+                    'total_jobs'    => $profile->total_jobs,
+                    'total_reviews' => $profile->total_reviews,
+                    'is_verified'   => $profile->is_verified,
+                    'is_available'  => $profile->is_available,
+                    'radius_km'     => $profile->radius_km,
+                    'latitude'      => $profile->latitude,
+                    'longitude'     => $profile->longitude,
+                ] : null,
+                'location'    => $location ? [
+                    'latitude'    => $location->latitude,
+                    'longitude'   => $location->longitude,
+                    'is_online'   => $location->is_online,
+                    'last_seen_at' => $location->last_seen_at?->toDateTimeString(),
+                ] : null,
+                'services'    => $user->tukangServices->map(fn($s) => [
+                    'id'           => $s->id,
+                    'name'         => $s->name,
+                    'category'     => $s->category?->name,
+                    'thumbnail_url' => $s->thumbnail ? asset($s->thumbnail) : null,
+                    'base_price'   => $s->base_price,
+                    'custom_price' => $s->pivot->custom_price,
+                    'unit'         => $s->unit,
+                ]),
+            ],
+        ]);
+    }
+
+
+    // =========================================================
+    // UPDATE — Update profil tukang
+    // PUT /api/tukang/profile
+    // Body:
+    //   name      : string (optional)
+    //   phone     : string (optional)
+    //   address   : string (optional)
+    //   city      : string (optional)
+    //   province  : string (optional)
+    //   bio       : string (optional)
+    //   radius_km : numeric (optional)
+    //   latitude  : numeric (optional)
+    //   longitude : numeric (optional)
+    // =========================================================
+
+    public function update(Request $request): JsonResponse
+    {
+        $user = $request->user();
+
+        $request->validate([
+            'name'      => 'sometimes|string|max:255',
+            'phone'     => 'sometimes|string|max:20|unique:users,phone,' . $user->id,
+            'address'   => 'sometimes|string',
+            'city'      => 'sometimes|string|max:100',
+            'province'  => 'sometimes|string|max:100',
+            'bio'       => 'sometimes|string|max:500',
+            'radius_km' => 'sometimes|numeric|min:1|max:100',
+            'latitude'  => 'sometimes|numeric',
+            'longitude' => 'sometimes|numeric',
+        ]);
+
+        // Update data user
+        if ($request->hasAny(['name', 'phone'])) {
+            $user->update($request->only('name', 'phone'));
+        }
+
+        // Update tukang profile
+        $profileData = $request->only('address', 'city', 'province', 'bio', 'radius_km', 'latitude', 'longitude');
+        if (! empty($profileData)) {
+            $user->tukangProfile()->updateOrCreate(
+                ['user_id' => $user->id],
+                $profileData
+            );
+        }
+
+        $user->load(['tukangProfile', 'tukangLocation', 'tukangServices.category']);
+
+        return response()->json([
+            'status'  => true,
+            'message' => 'Profil berhasil diupdate.',
+            'data'    => $this->show($request)->getData(true)['data'],
+        ]);
+    }
+
+
+    // =========================================================
+    // UPDATE PHOTO — Upload foto profil tukang
+    // POST /api/tukang/profile/photo
+    // Body (multipart):
+    //   photo : image (required) max 2MB
+    // =========================================================
+
+    public function updatePhoto(Request $request): JsonResponse
+    {
+        $request->validate([
+            'photo' => 'required|image|mimes:jpg,jpeg,png,webp|max:2048',
+        ]);
+
+        $user    = $request->user();
+        $profile = $user->tukangProfile;
+
+        if (! $profile) {
+            return response()->json([
+                'status'  => false,
+                'message' => 'Profil tukang tidak ditemukan.',
+            ], 404);
+        }
+
+        // Hapus foto lama & upload baru ke public/images/tukang/
+        $path = $this->replaceImage($request->file('photo'), 'tukang', $profile->photo);
+        $profile->update(['photo' => $path]);
+
+        return response()->json([
+            'status'  => true,
+            'message' => 'Foto profil berhasil diupdate.',
+            'data'    => [
+                'photo_url' => asset($path),
+            ],
+        ]);
+    }
+
+
+    // =========================================================
+    // UPLOAD ID CARD — Upload foto KTP untuk verifikasi
+    // POST /api/tukang/profile/id-card
+    // Body (multipart):
+    //   id_card : image (required) max 2MB
+    // =========================================================
+
+    public function uploadIdCard(Request $request): JsonResponse
+    {
+        $request->validate([
+            'id_card' => 'required|image|mimes:jpg,jpeg,png,webp|max:2048',
+        ]);
+
+        $user    = $request->user();
+        $profile = $user->tukangProfile;
+
+        if (! $profile) {
+            return response()->json([
+                'status'  => false,
+                'message' => 'Profil tukang tidak ditemukan.',
+            ], 404);
+        }
+
+        // Simpan ke public/images/tukang/
+        $path = $this->replaceImage($request->file('id_card'), 'tukang', $profile->id_card_photo);
+        $profile->update([
+            'id_card_photo' => $path,
+            'is_verified'   => false, // reset, tunggu admin verifikasi ulang
+        ]);
+
+        return response()->json([
+            'status'  => true,
+            'message' => 'KTP berhasil diupload. Menunggu verifikasi admin.',
+            'data'    => [
+                'id_card_url' => asset($path),
+            ],
+        ]);
+    }
+
+
+    // =========================================================
+    // SERVICES — Daftar service yang dikuasai tukang
+    // GET /api/tukang/services
+    // =========================================================
+
+    public function services(Request $request): JsonResponse
+    {
+        $user = $request->user();
+        $user->load('tukangServices.category');
+
+        return response()->json([
+            'status' => true,
+            'data'   => $user->tukangServices->map(fn($s) => [
+                'id'           => $s->id,
+                'name'         => $s->name,
+                'category'     => [
+                    'id'   => $s->category?->id,
+                    'name' => $s->category?->name,
+                ],
+                'base_price'   => $s->base_price,
+                'custom_price' => $s->pivot->custom_price,
+                'unit'         => $s->unit,
+                'thumbnail_url' => $s->thumbnail ? asset($s->thumbnail) : null,
+            ]),
+        ]);
+    }
+
+
+    // =========================================================
+    // ADD SERVICE — Tambah service yang bisa dikerjakan
+    // POST /api/tukang/services
+    // Body:
+    //   service_id    : int (required)
+    //   custom_price  : decimal (optional)
+    //   notes         : string (optional)
+    // =========================================================
+
+    public function addService(Request $request): JsonResponse
+    {
+        $request->validate([
+            'service_id'   => 'required|exists:services,id',
+            'custom_price' => 'nullable|numeric|min:0',
+            'notes'        => 'nullable|string|max:255',
+        ]);
+
+        $user = $request->user();
+
+        // Cek sudah ada
+        $exists = DB::table('tukang_services')
+            ->where('tukang_id', $user->id)
+            ->where('service_id', $request->service_id)
+            ->exists();
+
+        if ($exists) {
+            return response()->json([
+                'status'  => false,
+                'message' => 'Service ini sudah ada di daftar keahlian kamu.',
+            ], 422);
+        }
+
+        DB::table('tukang_services')->insert([
+            'tukang_id'    => $user->id,
+            'service_id'   => $request->service_id,
+            'custom_price' => $request->input('custom_price'),
+            'notes'        => $request->input('notes'),
+            'created_at'   => now(),
+            'updated_at'   => now(),
+        ]);
+
+        $service = Service::with('category')->find($request->service_id);
+
+        return response()->json([
+            'status'  => true,
+            'message' => 'Service berhasil ditambahkan ke keahlian kamu.',
+            'data'    => [
+                'id'           => $service->id,
+                'name'         => $service->name,
+                'category'     => $service->category?->name,
+                'base_price'   => $service->base_price,
+                'custom_price' => $request->input('custom_price'),
+                'unit'         => $service->unit,
+            ],
+        ], 201);
+    }
+
+
+    // =========================================================
+    // REMOVE SERVICE — Hapus service dari daftar keahlian
+    // DELETE /api/tukang/services/{service}
+    // =========================================================
+
+    public function removeService(Request $request, Service $service): JsonResponse
+    {
+        $user = $request->user();
+
+        $deleted = DB::table('tukang_services')
+            ->where('tukang_id', $user->id)
+            ->where('service_id', $service->id)
+            ->delete();
+
+        if (! $deleted) {
+            return response()->json([
+                'status'  => false,
+                'message' => 'Service tidak ditemukan di daftar keahlian kamu.',
+            ], 404);
+        }
+
+        return response()->json([
+            'status'  => true,
+            'message' => 'Service berhasil dihapus dari keahlian kamu.',
+        ]);
+    }
+}
+
+
+===== WithdrawalController =====
+<?php
+
+namespace App\Http\Controllers\Api\Tukang;
+
+use App\Http\Controllers\Controller;
+use App\Models\PartnerEarning;
+use App\Models\Withdrawal;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+
+class WithdrawalController extends Controller
+{
+    // =========================================================
+    // INDEX — Riwayat penarikan saldo
+    // GET /api/tukang/withdrawals
+    // Query params:
+    //   ?status=pending|processing|success|failed
+    //   ?per_page=10
+    // =========================================================
+
+    public function index(Request $request): JsonResponse
+    {
+        $query = Withdrawal::where('tukang_id', $request->user()->id);
+
+        if ($request->filled('status')) {
+            $query->where('status', $request->status);
+        }
+
+        $withdrawals = $query->latest()->paginate($request->get('per_page', 10));
+
+        return response()->json([
+            'status' => true,
+            'meta'   => [
+                'total'        => $withdrawals->total(),
+                'current_page' => $withdrawals->currentPage(),
+                'last_page'    => $withdrawals->lastPage(),
+            ],
+            'data' => collect($withdrawals->items())->map(fn($w) => $this->formatWithdrawal($w)),
+        ]);
+    }
+
+
+    // =========================================================
+    // STORE — Ajukan penarikan saldo
+    // POST /api/tukang/withdrawals
+    // Body:
+    //   amount               : decimal (required)
+    //   bank_name            : string (required) contoh: BCA, BNI, Mandiri
+    //   bank_account_number  : string (required)
+    //   bank_account_name    : string (required)
+    //   notes                : string (optional)
+    // =========================================================
+
+    public function store(Request $request): JsonResponse
+    {
+        $request->validate([
+            'amount'              => 'required|numeric|min:50000', // minimal withdraw 50rb
+            'bank_name'           => 'required|string|max:50',
+            'bank_account_number' => 'required|string|max:30',
+            'bank_account_name'   => 'required|string|max:100',
+            'notes'               => 'nullable|string|max:255',
+        ]);
+
+        $tukangId = $request->user()->id;
+
+        // Cek saldo tersedia
+        $totalSettled = PartnerEarning::where('tukang_id', $tukangId)
+            ->where('status', 'settled')
+            ->sum('amount');
+
+        $totalWithdrawn = Withdrawal::where('tukang_id', $tukangId)
+            ->whereIn('status', ['pending', 'processing', 'success'])
+            ->sum('amount');
+
+        $availableBalance = $totalSettled - $totalWithdrawn;
+
+        if ($request->amount > $availableBalance) {
+            return response()->json([
+                'status'  => false,
+                'message' => "Saldo tidak cukup. Saldo tersedia: Rp " . number_format($availableBalance, 0, ',', '.'),
+            ], 422);
+        }
+
+        // Cek ada withdrawal pending/processing yang belum selesai
+        $hasPending = Withdrawal::where('tukang_id', $tukangId)
+            ->whereIn('status', ['pending', 'processing'])
+            ->exists();
+
+        if ($hasPending) {
+            return response()->json([
+                'status'  => false,
+                'message' => 'Kamu masih memiliki penarikan yang sedang diproses. Tunggu hingga selesai.',
+            ], 422);
+        }
+
+        DB::beginTransaction();
+        try {
+            $withdrawal = Withdrawal::create([
+                'tukang_id'           => $tukangId,
+                'amount'              => $request->amount,
+                'bank_name'           => $request->bank_name,
+                'bank_account_number' => $request->bank_account_number,
+                'bank_account_name'   => $request->bank_account_name,
+                'notes'               => $request->input('notes'),
+                'status'              => 'pending',
+            ]);
+
+            DB::commit();
+
+            return response()->json([
+                'status'  => true,
+                'message' => 'Permintaan penarikan berhasil diajukan. Proses 1x24 jam kerja.',
+                'data'    => $this->formatWithdrawal($withdrawal),
+            ], 201);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json([
+                'status'  => false,
+                'message' => 'Gagal mengajukan penarikan. Silakan coba lagi.',
+                'error'   => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+
+    // =========================================================
+    // SHOW — Detail penarikan
+    // GET /api/tukang/withdrawals/{withdrawal}
+    // =========================================================
+
+    public function show(Request $request, Withdrawal $withdrawal): JsonResponse
+    {
+        if ($withdrawal->tukang_id !== $request->user()->id) {
+            return response()->json([
+                'status'  => false,
+                'message' => 'Data penarikan tidak ditemukan.',
+            ], 404);
+        }
+
+        return response()->json([
+            'status' => true,
+            'data'   => $this->formatWithdrawal($withdrawal),
+        ]);
+    }
+
+
+    // =========================================================
+    // HELPERS
+    // =========================================================
+
+    private function formatWithdrawal(Withdrawal $withdrawal): array
+    {
+        return [
+            'id'                  => $withdrawal->id,
+            'amount'              => $withdrawal->amount,
+            'bank_name'           => $withdrawal->bank_name,
+            'bank_account_number' => $withdrawal->bank_account_number,
+            'bank_account_name'   => $withdrawal->bank_account_name,
+            'reference_id'        => $withdrawal->reference_id,
+            'status'              => $withdrawal->status,
+            'notes'               => $withdrawal->notes,
+            'processed_at'        => $withdrawal->processed_at?->toDateTimeString(),
+            'created_at'          => $withdrawal->created_at->toDateTimeString(),
+        ];
+    }
+}

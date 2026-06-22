@@ -108,23 +108,33 @@ Route::middleware('auth')->group(function () {
             Route::put('/earnings/{earning}/settle',     [EarningController::class, 'settle'])->name('earnings.settle');
 
 
-            // ── Withdrawals ───────────────────────────────────
-            // GET  /admin/withdrawals                    → daftar penarikan
-            // GET  /admin/withdrawals/{withdrawal}       → detail penarikan
-            // PUT  /admin/withdrawals/{withdrawal}/approve → setujui
-            // PUT  /admin/withdrawals/{withdrawal}/reject  → tolak
-            Route::get('/withdrawals',                         [WithdrawalController::class, 'index'])->name('withdrawals.index');
-            Route::get('/withdrawals/{withdrawal}',            [WithdrawalController::class, 'show'])->name('withdrawals.show');
-            Route::put('/withdrawals/{withdrawal}/approve',    [WithdrawalController::class, 'approve'])->name('withdrawals.approve');
-            Route::put('/withdrawals/{withdrawal}/reject',     [WithdrawalController::class, 'reject'])->name('withdrawals.reject');
+        // ── Withdrawals ───────────────────────────────────
+        // GET  /admin/withdrawals                    → daftar penarikan
+        // GET  /admin/withdrawals/{withdrawal}       → detail penarikan
+        // PUT  /admin/withdrawals/{withdrawal}/approve → setujui
+        // PUT  /admin/withdrawals/{withdrawal}/reject  → tolak
+        // ── Withdrawals ───────────────────────────────────────────────
+        Route::get('withdrawals',                          [WithdrawalController::class, 'index'])
+            ->name('withdrawals.index');
 
+        Route::get('withdrawals/{withdrawal}',             [WithdrawalController::class, 'show'])
+            ->name('withdrawals.show');
 
-            // ── Reviews ───────────────────────────────────────
-            // GET    /admin/reviews             → daftar semua review
-            // GET    /admin/reviews/{review}    → detail review
-            // DELETE /admin/reviews/{review}    → hapus review
-            // PUT    /admin/reviews/{review}/unpublish → sembunyikan
-            Route::get('/reviews',                     [ReviewController::class, 'index'])->name('reviews.index');
+        Route::put('withdrawals/{withdrawal}/approve',     [WithdrawalController::class, 'approve'])
+            ->name('withdrawals.approve');
+
+        Route::put('withdrawals/{withdrawal}/reject',      [WithdrawalController::class, 'reject'])
+            ->name('withdrawals.reject');
+
+        Route::post('withdrawals/{withdrawal}/sync',        [WithdrawalController::class, 'syncStatus'])
+            ->name('withdrawals.sync');
+
+        // ── Reviews ───────────────────────────────────────
+        // GET    /admin/reviews             → daftar semua review
+        // GET    /admin/reviews/{review}    → detail review
+        // DELETE /admin/reviews/{review}    → hapus review
+        // PUT    /admin/reviews/{review}/unpublish → sembunyikan
+        Route::get('/reviews',                     [ReviewController::class, 'index'])->name('reviews.index');
             Route::get('/reviews/{review}',            [ReviewController::class, 'show'])->name('reviews.show');
             Route::delete('/reviews/{review}',         [ReviewController::class, 'destroy'])->name('reviews.destroy');
             Route::put('/reviews/{review}/unpublish',  [ReviewController::class, 'unpublish'])->name('reviews.unpublish');
