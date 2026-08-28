@@ -3,31 +3,28 @@
 @section('title', 'Login')
 
 @section('main')
-    <div class="card card-primary">
-        <div class="card-header">
-            <h4>Login Admin</h4>
-        </div>
-        <div class="card-body">
-<<<<<<< HEAD
-            <form method="POST" action="{{ route('login') }}">
-=======
+<div class="card card-primary">
+    <div class="card-header">
+        <h4>Login Admin</h4>
+    </div>
+    <div class="card-body">
+        <form method="POST" action="{{ route('login') }}">
 
             {{-- Alert Error --}}
             @if ($errors->any())
-                <div class="alert alert-danger alert-dismissible fade show" role="alert">
-                    <ul class="mb-0">
-                        @foreach ($errors->all() as $error)
-                            <li>{{ $error }}</li>
-                        @endforeach
-                    </ul>
-                    <button type="button" class="close" data-dismiss="alert">
-                        <span>&times;</span>
-                    </button>
-                </div>
+            <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                <ul class="mb-0">
+                    @foreach ($errors->all() as $error)
+                    <li>{{ $error }}</li>
+                    @endforeach
+                </ul>
+                <button type="button" class="close" data-dismiss="alert">
+                    <span>&times;</span>
+                </button>
+            </div>
             @endif
 
             <form method="POST" action="{{ route('login.post') }}">
->>>>>>> 7ce728f3b5a40b966c12bbd32c474593d4a3e292
                 @csrf
 
                 {{-- Email --}}
@@ -37,7 +34,7 @@
                         class="form-control @error('email') is-invalid @enderror" value="{{ old('email') }}"
                         placeholder="admin@nukang.com" autofocus required>
                     @error('email')
-                        <div class="invalid-feedback">{{ $message }}</div>
+                    <div class="invalid-feedback">{{ $message }}</div>
                     @enderror
                 </div>
 
@@ -47,9 +44,10 @@
                         <label for="password">Password</label>
                     </div>
                     <input type="password" id="password" name="password"
-                        class="form-control @error('password') is-invalid @enderror" placeholder="Password kamu" required>
+                        class="form-control @error('password') is-invalid @enderror" placeholder="Password kamu"
+                        required>
                     @error('password')
-                        <div class="invalid-feedback">{{ $message }}</div>
+                    <div class="invalid-feedback">{{ $message }}</div>
                     @enderror
                 </div>
 
@@ -69,6 +67,6 @@
                 </div>
 
             </form>
-        </div>
     </div>
+</div>
 @endsection
